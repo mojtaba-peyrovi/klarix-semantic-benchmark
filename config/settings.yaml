@@ -1,0 +1,35 @@
+# Non-secret configuration. Secrets and the GCP project/locations come from .env.
+
+seed: 20260925
+
+benchmark:
+  # Last complete month of the snapshot. Set after Milestone 2 profiling.
+  end_date: null
+  window_months: 24
+
+gcp:
+  datasets:
+    raw: klarix_raw
+    staging: klarix_staging
+    star: klarix_star
+    marts: klarix_marts
+  # Per-query guard passed as maximum_bytes_billed on every BigQuery job we run.
+  # The project-level daily quota (SETUP.md) is the hard cap; this catches a single bad query.
+  max_bytes_billed_per_query: 2_000_000_000
+
+models:
+  # Checked against Google / Anthropic docs on 2026-09-25.
+  # gemini-3.8-flash: GA since 2026-09-02, served from the EU multi-region endpoint.
+  gemini: gemini-3.8-flash
+  # Current Claude models reject temperature/top_p; determinism comes from fixed
+  # prompts + low effort instead (see shared/agent/providers/anthropic_provider.py).
+  anthropic_agent: claude-opus-5
+  judge: claude-opus-5
+
+  # USD per 1M tokens, used for cost estimates in eval reports.
+  # Gemini: EU multi-region rate (global is ~10% cheaper). Re-verify before publishing.
+  prices:
+    gemini-3.8-flash: { input: 0.82, output: 4.13 }
+    claude-opus-5: { input: 5.00, output: 25.00 }
+
+# Planted-problem parameters (P2-P5) are added after Milestone 2 calibration.

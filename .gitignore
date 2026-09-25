@@ -1,0 +1,26 @@
+# Local data and eval outputs (regenerable, and too large for git)
+data/
+runs/
+
+# Secrets
+.env
+*.json.key
+*-sa.json
+*service-account*.json
+credentials*.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+.claude/
