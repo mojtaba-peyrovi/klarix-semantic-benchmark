@@ -8,11 +8,13 @@ benchmark:
   window_months: 24
 
 gcp:
+  # The GCP project "Klarix" hosts several portfolio projects; each prefixes its
+  # datasets with a domain slug. theLook is a D2C apparel web store -> apparel_ecom.
   datasets:
-    raw: klarix_raw
-    staging: klarix_staging
-    star: klarix_star
-    marts: klarix_marts
+    raw: apparel_ecom_raw
+    staging: apparel_ecom_staging
+    star: apparel_ecom_star
+    marts: apparel_ecom_marts
   # Per-query guard passed as maximum_bytes_billed on every BigQuery job we run.
   # The project-level daily quota (SETUP.md) is the hard cap; this catches a single bad query.
   max_bytes_billed_per_query: 2_000_000_000

@@ -3,14 +3,26 @@
 Manual, one-time steps. Commands work in PowerShell and bash; replace `<PROJECT_ID>` and
 `<BILLING_ACCOUNT_ID>` with your own values. When you're done, run `make gcp-check`.
 
+## Naming
+
+The GCP project **Klarix** is an umbrella for several Klarix portfolio projects. Each project gets
+a domain slug that prefixes everything it creates, so the projects don't collide:
+
+| Resource | This project (theLook, a D2C apparel web store) |
+|---|---|
+| Domain slug | `apparel_ecom` |
+| BigQuery datasets | `apparel_ecom_raw`, `apparel_ecom_staging`, `apparel_ecom_star`, `apparel_ecom_marts` |
+| Cube service account | `apparel-ecom-cube` (hyphens: service-account IDs don't allow underscores) |
+
 ## 1. Project and billing
 
 Use a dedicated project with billing enabled. **Do not use the BigQuery Sandbox**: its tables
 expire after 60 days.
 
 ```sh
-# Project IDs are global. Try "klarix" first; if it's taken, use e.g. "klarix-benchmark".
-gcloud projects create <PROJECT_ID> --name="Klarix"
+# No ID given: gcloud generates one from the name (e.g. klarix-123456) and asks you to confirm.
+gcloud projects create --name="Klarix"
+gcloud projects list --filter="name=Klarix"     # the PROJECT_ID column is <PROJECT_ID> below
 gcloud billing accounts list
 gcloud billing projects link <PROJECT_ID> --billing-account=<BILLING_ACCOUNT_ID>
 gcloud config set project <PROJECT_ID>
@@ -28,14 +40,15 @@ gcloud services enable bigquery.googleapis.com aiplatform.googleapis.com service
 
 ### Budget alerts (€5 / €10 / €20)
 
-Budgets **only send alerts. They do not cap spending.** The quota below is the hard cap.
+Budgets **only send alerts. They do not cap spending.** The quota below is the hard cap. Both apply
+to the whole Klarix project, so they cover later portfolio projects too.
 
 Console: *Billing → Budgets & alerts → Create budget*. Scope it to this project, set the amount to
 €20, and add threshold rules at 25% (€5), 50% (€10), and 100% (€20). The same thing from the CLI
 (the currency must match your billing account's currency):
 
 ```sh
-gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> --display-name="klarix-benchmark" --budget-amount=20EUR --filter-projects=projects/<PROJECT_ID> --threshold-rule=percent=0.25 --threshold-rule=percent=0.5 --threshold-rule=percent=1.0
+gcloud billing budgets create --billing-account=<BILLING_ACCOUNT_ID> --display-name="klarix" --budget-amount=20EUR --filter-projects=projects/<PROJECT_ID> --threshold-rule=percent=0.25 --threshold-rule=percent=0.5 --threshold-rule=percent=1.0
 ```
 
 ### Hard cap: 10 GB per day of BigQuery query bytes
@@ -51,10 +64,10 @@ can't use up the day's quota.
 ## 4. BigQuery datasets (all in `EU`)
 
 ```sh
-bq --location=EU mk --dataset --description="Observed tables loaded from Parquet" <PROJECT_ID>:klarix_raw
-bq --location=EU mk --dataset --description="Staging views" <PROJECT_ID>:klarix_staging
-bq --location=EU mk --dataset --description="Kimball star schema" <PROJECT_ID>:klarix_star
-bq --location=EU mk --dataset --description="Governed marts" <PROJECT_ID>:klarix_marts
+bq --location=EU mk --dataset --description="theLook apparel: observed tables loaded from Parquet" <PROJECT_ID>:apparel_ecom_raw
+bq --location=EU mk --dataset --description="theLook apparel: staging views" <PROJECT_ID>:apparel_ecom_staging
+bq --location=EU mk --dataset --description="theLook apparel: Kimball star schema" <PROJECT_ID>:apparel_ecom_star
+bq --location=EU mk --dataset --description="theLook apparel: governed marts" <PROJECT_ID>:apparel_ecom_marts
 ```
 
 If you change the location, set `BQ_LOCATION` in `.env` to match. All four datasets must share one
@@ -81,16 +94,16 @@ gcloud projects add-iam-policy-binding <PROJECT_ID> --member="user:<YOUR_EMAIL>"
 Read-only: Cube can query the data but can't change it.
 
 ```sh
-gcloud iam service-accounts create cube-reader --display-name="Cube Core (read-only)" --project=<PROJECT_ID>
-gcloud projects add-iam-policy-binding <PROJECT_ID> --member="serviceAccount:cube-reader@<PROJECT_ID>.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
-gcloud projects add-iam-policy-binding <PROJECT_ID> --member="serviceAccount:cube-reader@<PROJECT_ID>.iam.gserviceaccount.com" --role="roles/bigquery.jobUser"
+gcloud iam service-accounts create apparel-ecom-cube --display-name="apparel_ecom: Cube Core (read-only)" --project=<PROJECT_ID>
+gcloud projects add-iam-policy-binding <PROJECT_ID> --member="serviceAccount:apparel-ecom-cube@<PROJECT_ID>.iam.gserviceaccount.com" --role="roles/bigquery.dataViewer"
+gcloud projects add-iam-policy-binding <PROJECT_ID> --member="serviceAccount:apparel-ecom-cube@<PROJECT_ID>.iam.gserviceaccount.com" --role="roles/bigquery.jobUser"
 ```
 
 Create the key **outside the repo**. For example, on Windows:
 
 ```sh
 mkdir $HOME\.gcp
-gcloud iam service-accounts keys create $HOME\.gcp\klarix-cube-reader.json --iam-account=cube-reader@<PROJECT_ID>.iam.gserviceaccount.com
+gcloud iam service-accounts keys create $HOME\.gcp\apparel-ecom-cube.json --iam-account=apparel-ecom-cube@<PROJECT_ID>.iam.gserviceaccount.com
 ```
 
 Set `CUBE_SA_KEY_PATH` in `.env` to that absolute path. Milestone 7 mounts the key read-only into

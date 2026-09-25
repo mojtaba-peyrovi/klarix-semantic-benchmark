@@ -16,6 +16,9 @@ agent gets it right, where it's confidently wrong, and where it asks the right q
 store), with planted problems injected into a copy. Ground truth is computed independently from
 the clean version.
 
+**Naming:** the GCP project *Klarix* hosts several portfolio projects. This benchmark's BigQuery
+datasets are prefixed with the domain slug `apparel_ecom` (e.g. `apparel_ecom_star`).
+
 ## Quick start
 
 ```sh
