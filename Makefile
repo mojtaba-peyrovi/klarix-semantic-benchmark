@@ -16,7 +16,9 @@ snapshot:
 	uv run python -m shared.snapshot.profile
 
 world:
-	$(call todo,3)
+	uv run python -m shared.world.real_signal
+	uv run python -m shared.world.observe
+	uv run python -m shared.world.truth
 
 bq-load:
 	$(call todo,5)

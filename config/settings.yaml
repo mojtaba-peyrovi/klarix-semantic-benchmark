@@ -57,11 +57,12 @@ planted_problems:
     affected_share: 0.30
 
   # P4: internal/test users (hygiene). The plan's default of ~150 users moves the 90-day
-  # repeat-purchase rate by only ~0.35pts against a 2pt test threshold, so the count is
-  # raised to 900. Modeled effect: +2.2pts repeat rate, ~-6% AOV, ~3.6k fake orders
-  # against ~59k real orders in the window.
+  # repeat-purchase rate by only ~0.35pts against a 2pt test threshold. 900 (the user's
+  # first confirmed count) measured at +1.9pts once implemented -- just under the
+  # threshold -- so it's raised to 1000, which clears it with margin (+~2.1pts modeled,
+  # confirmed by tests/test_world.py::test_p4_internal_users_move_the_observed_metrics).
   p4_internal_users:
-    count: 900
+    count: 1000
     country: United States
     email_domain: thelook-internal.com
     name_prefixes: [Test, QA, Demo]

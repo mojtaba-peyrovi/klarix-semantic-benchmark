@@ -39,15 +39,39 @@ through the shared milestones in lockstep.
 - **Planted-problem parameters (P2-P5):** confirmed 2026-09-28, in `config/settings.yaml` under
   `planted_problems` (typed in `shared/settings.py`). Notable deviations from the plan's defaults:
   - P2 renames Sweaters -> Knitwear on 2025-10-01 (not the plan's Outerwear & Coats example).
-  - P4 uses 900 internal users, not the plan's ~150 -- that count was too small to clear the
-    milestone's own repeat-purchase-rate test.
+  - P4 uses **1000** internal users, not the plan's ~150 or even the user's first-confirmed 900 --
+    900 measured at +1.9pts observed repeat-purchase-rate lift once implemented, just under the
+    milestone's own 2pt test threshold. 1000 clears it with margin. Told to the user when raised.
   - P5's cohort (Facebook, 2025-05 to 2025-07, 80% return probability) clears its own test at
-    cohort level but barely moves company-wide net margin. Q18/Q19 must be scoped to the
-    cohort/segment, not the whole channel, when written in Milestone 8.
+    cohort level (~40% vs ~12% baseline) but barely moves company-wide net margin. Q18/Q19 must be
+    scoped to the cohort/segment, not the whole channel, when written in Milestone 8.
+- **Milestone 3 design decisions** (DEV_PLAN section 6 leaves these implicit):
+  - **"Clipped to window" only means capped at the end date.** Rows/timestamps after
+    `benchmark.end_date` are dropped (`real_signal.py`); rows *before* `window_start` are **kept**
+    in data/true and data/observed, because `new_customers`/cohort/first-order logic needs full
+    order history to tell a first order from a repeat one -- a customer who first ordered in 2021
+    and re-ordered in the window must not be counted as new. The 24-month window is applied as a
+    filter when metrics are computed (`truth.py`, and later Cube/marts), not by deleting history.
+  - **As-of-end-date rollback:** a lifecycle timestamp (shipped/delivered/returned_at) after the
+    end date is nulled and the item's status stepped back one stage (Returned->Complete->
+    Shipped->Processing), so the true world reflects what was actually known as of the cutoff.
+  - **Injection order in `observe.py`: P4 runs before P2.** Internal users buy random products
+    across all categories; if P2 (category rename) ran first, injected orders placed in the
+    renamed category after the rename date would never get repointed, diluting P2's own test.
+  - **P3 excludes P4's synthetic users.** The consent-loss mechanic only applies to real users;
+    internal/test accounts aren't a real consent-tracking subject.
+  - Reference the P1-P5 tests in `tests/test_world.py::test_p*` for the exact numbers each
+    planted problem produces on the current seed.
 
 ## Status
 
 - **Milestone 1** (scaffold + GCP): done. `gcp-check` passes except the quota row (see above).
 - **Milestone 2** (snapshot + profile): done and confirmed by the user. `data/snapshot/*.parquet`,
   `manifest.json`, `PROFILE.md`, and the planted-problem parameters in `config/settings.yaml`.
-- **Next:** Milestone 3 (true world, observed world, truth) per DEV_PLAN.md section 6.
+- **Milestone 3** (true world, observed world, truth): done. `shared/world/{real_signal,observe,
+  truth}.py`, `make world`, `data/{true,observed,truth}/*`, and `tests/test_world.py` (all 5
+  planted-problem tests pass on the current seed).
+- **Next:** Milestone 4 (semantic contract: `shared/semantic/catalog.yaml` + `query.py`) per
+  DEV_PLAN.md section 8. `truth.py` already implements the section 7.1 metric definitions
+  directly in SQL; Milestone 4 should make `catalog.yaml` the single source of those definitions
+  and keep `truth.py`'s numbers consistent with it, not redefine them independently.
