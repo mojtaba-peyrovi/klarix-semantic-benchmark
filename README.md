@@ -43,19 +43,26 @@ graph TD
     C["data/observed/*.parquet<br/>true world + P2/P3/P4 injected artifacts<br/>what the warehouse sees"]
     D["data/truth/*.parquet + answers.json<br/>correct answers, computed independently with DuckDB<br/>straight from the true world — never via BigQuery or Cube"]
     E["apparel_ecom_raw (BigQuery)<br/>Milestone 5 — DONE"]
-    F["staging → star schema → marts<br/>apparel_ecom_staging / _star / _marts"]
-    G["Cube Core semantic layer<br/>Milestone 7 — not started"]
-    H["LLM agent (Gemini / Claude)<br/>answers the 20 golden questions<br/>Milestones 8-9"]
+    F["staging → star schema → marts<br/>apparel_ecom_staging / _star / _marts<br/>Milestone 5 — DONE"]
+    G1["naive_bigquery backend<br/>raw tables, no governance<br/>Milestone 6 — not started"]
+    G2["Cube Core semantic layer<br/>governed, built on the star schema<br/>Milestone 7 — not started"]
+    H["LLM agent (Gemini / Claude)<br/>answers the 20 golden questions<br/>against EITHER backend<br/>Milestone 6, then 8-9"]
 
     A --> B
     B --> C
     B --> D
     C --> E
     E --> F
-    F --> G
-    G --> H
+    E --> G1
+    F --> G2
+    G1 --> H
+    G2 --> H
     D -. graded against .-> H
 ```
+
+The agent (Milestone 6) and the naive baseline don't need Cube at all -- they query `apparel_ecom_raw`
+directly. Cube (Milestone 7) is a second, governed backend built on top of the star schema; the
+same agent then runs against both, which is the actual comparison this benchmark measures.
 
 **Why it's built this way:**
 - **The snapshot is pulled once and frozen** — `bigquery-public-data.thelook_ecommerce` is
