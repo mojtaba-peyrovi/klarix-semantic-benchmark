@@ -62,6 +62,13 @@ through the shared milestones in lockstep.
     internal/test accounts aren't a real consent-tracking subject.
   - Reference the P1-P5 tests in `tests/test_world.py::test_p*` for the exact numbers each
     planted problem produces on the current seed.
+- **Catalog synonyms: deferred, not forgotten.** `catalog.yaml` could carry a `synonyms:` list per
+  metric/dimension (e.g. `aov` / "average order value"), but don't add any yet. Some ambiguous
+  terms ("revenue") are ambiguous *on purpose* -- Q06-Q09 (P1) test whether the agent notices the
+  gross/net split and asks or states its assumption; pre-resolving that with a synonym would
+  quietly defeat the test. Revisit this in **Milestone 9** (the real Gemini/Claude eval runs), and
+  only add a synonym if a run shows the agent genuinely failing to find an *unambiguous* metric by
+  a plausible alternate name -- not to smooth over a deliberate trap.
 
 ## Status
 
