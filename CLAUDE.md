@@ -85,6 +85,24 @@ through the shared milestones in lockstep.
   raising -- backends call this before compiling anything, from Milestone 6 on).
   `tests/test_semantic.py` also checks `truth.py`'s metric columns haven't drifted from the
   catalog (it predates catalog.yaml by one milestone).
-- **Next:** Milestone 5 (BigQuery modeling: `bigquery/load.py`, staging views, the star schema,
-  marts, SQL tests) per DEV_PLAN.md section 9. This loads `data/observed/` into
-  `apparel_ecom_raw`, currently still empty.
+- **Milestone 5** (BigQuery modeling): done. `project1-gcp-cube/bigquery/{load,apply_sql,
+  run_tests,render}.py` + `sql/{10_staging,20_star,30_marts,90_tests}/*.sql`. `make bq-load`
+  loaded `data/observed/` into `apparel_ecom_raw`; `make bq-build` ran staging -> star -> marts;
+  `make bq-test` passes all 16 assertions (PK uniqueness, no orphan FKs, row-count and
+  gross-revenue reconciliation to raw, every category has a family). Verified live against
+  BigQuery, not just structurally: `is_internal` flags exactly the 1000 injected P4 users,
+  `Sweaters`/`Knitwear` both map to one `category_family`, `acquisition_channel`/
+  `session_traffic_source` show "Unattributed" for exactly the P3-affected counts.
+  - `project1-gcp-cube/bigquery/` isn't a Python package (the directory name has a hyphen); its
+    scripts import each other as script-directory siblings (`from render import ...`), not via
+    `shared`. Run them as files (`uv run python project1-gcp-cube/bigquery/load.py`), never `-m`.
+  - `.sql` files use `{{placeholder}}` templating (see `render.py`) for dataset names, the
+    benchmark window, and the P2/P4 planted-problem parameters -- no Jinja (not an allowed
+    dependency). `map_category_family` is a genuinely hand-maintained governed table (all 27
+    current categories hardcoded in its VALUES list, per DEV_PLAN 9.2); only the renamed pair's
+    names are templated from settings, not the full category list.
+  - `fct_orders` keeps fully-cancelled orders as rows (gross_revenue = 0) rather than dropping
+    them; `is_first_order`/`order_sequence_number` are only assigned among orders with
+    gross_revenue > 0 (the same "orders" definition as the metric catalog and truth.py).
+- **Next:** Milestone 6 (agent and baseline: `shared/backends/{base,naive_bigquery}.py`, the
+  agent loop, both providers) per DEV_PLAN.md section 11.

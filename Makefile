@@ -21,13 +21,13 @@ world:
 	uv run python -m shared.world.truth
 
 bq-load:
-	$(call todo,5)
+	uv run python project1-gcp-cube/bigquery/load.py
 
 bq-build:
-	$(call todo,5)
+	uv run python project1-gcp-cube/bigquery/apply_sql.py
 
 bq-test:
-	$(call todo,5)
+	uv run python project1-gcp-cube/bigquery/run_tests.py
 
 cube-up:
 	$(call todo,7)
