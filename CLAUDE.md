@@ -71,7 +71,13 @@ through the shared milestones in lockstep.
 - **Milestone 3** (true world, observed world, truth): done. `shared/world/{real_signal,observe,
   truth}.py`, `make world`, `data/{true,observed,truth}/*`, and `tests/test_world.py` (all 5
   planted-problem tests pass on the current seed).
-- **Next:** Milestone 4 (semantic contract: `shared/semantic/catalog.yaml` + `query.py`) per
-  DEV_PLAN.md section 8. `truth.py` already implements the section 7.1 metric definitions
-  directly in SQL; Milestone 4 should make `catalog.yaml` the single source of those definitions
-  and keep `truth.py`'s numbers consistent with it, not redefine them independently.
+- **Milestone 4** (semantic contract): done. `shared/semantic/catalog.yaml` (18 metrics, 14
+  dimensions, from DEV_PLAN section 7), `query.py` (SemanticQuery/SemanticResult/Filter/TimeRange,
+  section 8, structural validation via pydantic), `catalog.py` (loads the catalog, and
+  `validate_query()` cross-checks a query's names against it, returning readable errors instead of
+  raising -- backends call this before compiling anything, from Milestone 6 on).
+  `tests/test_semantic.py` also checks `truth.py`'s metric columns haven't drifted from the
+  catalog (it predates catalog.yaml by one milestone).
+- **Next:** Milestone 5 (BigQuery modeling: `bigquery/load.py`, staging views, the star schema,
+  marts, SQL tests) per DEV_PLAN.md section 9. This loads `data/observed/` into
+  `apparel_ecom_raw`, currently still empty.

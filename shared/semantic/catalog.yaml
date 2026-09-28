@@ -1,0 +1,211 @@
+# Canonical metric and dimension catalog (DEV_PLAN section 7). This is the contract
+# every stack (Cube now; later MetricFlow, later Power BI TMDL) must implement under
+# these exact names. Descriptions are written for an LLM agent reading them at query
+# time, not for a human data dictionary: state what a term means, what it
+# deliberately excludes, and where people usually get it wrong.
+#
+# All metrics exclude internal/test users (P4) unless noted otherwise. Ratios are
+# fractions (0.52 means 52%, not 52).
+
+metrics:
+  - name: gross_revenue
+    unit: usd
+    default_time_dimension: order_created
+    description: >
+      Sum of sale_price for order items that were not cancelled. Includes items that
+      were later returned -- gross_revenue does NOT subtract returns. If someone asks
+      for "revenue" without saying which, ask, or state which one you used: gross
+      counts a sale even if the customer sent it back; net_revenue does not.
+
+  - name: returned_revenue
+    unit: usd
+    default_time_dimension: order_created
+    description: >
+      Sum of sale_price for items with status Returned. A component of net_revenue,
+      rarely asked for on its own.
+
+  - name: net_revenue
+    unit: usd
+    default_time_dimension: order_created
+    description: >
+      gross_revenue minus returned_revenue. This is the more defensible "revenue" to
+      report to leadership: what the business actually kept. Cancelled items are
+      excluded from both terms, so a cancellation never reduces net_revenue (it was
+      never counted in gross_revenue to begin with).
+
+  - name: cogs
+    unit: usd
+    default_time_dimension: order_created
+    description: >
+      Cost of goods sold: sum of products.cost for items that are neither cancelled
+      nor returned (the same item population as net_revenue).
+
+  - name: gross_margin
+    unit: usd
+    default_time_dimension: order_created
+    description: net_revenue minus cogs.
+
+  - name: gross_margin_pct
+    unit: ratio
+    default_time_dimension: order_created
+    description: gross_margin divided by net_revenue.
+
+  - name: orders
+    unit: count
+    default_time_dimension: order_created
+    description: >
+      Count of distinct orders with at least one non-cancelled item. An order that
+      was fully cancelled does not count here -- nothing was actually sold.
+
+  - name: aov
+    unit: usd
+    default_time_dimension: order_created
+    description: >
+      Average order value: net_revenue / orders. This divides by the `orders`
+      metric's own definition (has a non-cancelled item), not a raw order count.
+
+  - name: items_sold
+    unit: count
+    default_time_dimension: order_created
+    description: Count of order items that are not cancelled (includes returned items).
+
+  - name: return_rate
+    unit: ratio
+    default_time_dimension: order_created
+    description: >
+      Returned items divided by items_sold -- item-based, not revenue-based. A
+      return rate computed on dollars instead of item counts will differ, since
+      returned items aren't a uniform price; say which one you mean if it matters.
+
+  - name: cancellation_rate
+    unit: ratio
+    default_time_dimension: order_created
+    description: >
+      Cancelled items divided by ALL items (cancelled + non-cancelled). Unlike most
+      other metrics here, the denominator is not restricted to non-cancelled items.
+
+  - name: purchasing_customers
+    unit: count
+    default_time_dimension: order_created
+    description: Count of distinct users with at least one order (see `orders`) in the period.
+
+  - name: new_customers
+    unit: count
+    default_time_dimension: order_created
+    description: >
+      Count of users whose first-ever order (by the `orders` definition, using each
+      customer's full order history, not just the queried period) falls in the
+      period. A returning customer's order in the period does not make them "new"
+      even if it's their first order in this particular date range.
+
+  - name: repeat_purchase_rate_90d
+    unit: ratio
+    default_time_dimension: user_created
+    description: >
+      Share of a first-order cohort (grouped by the month of each customer's first
+      order) that placed a second order within 90 days of the first. Cohorts near
+      the end of the available data are "immature" -- they haven't had 90 days yet
+      to repeat -- and should be flagged or excluded, not reported as a low rate.
+
+  - name: signups
+    unit: count
+    default_time_dimension: user_created
+    description: Count of users created (account creation, not first purchase) in the period.
+
+  - name: sessions
+    unit: count
+    default_time_dimension: session_started
+    description: Count of distinct session_id values in the events log, in the period.
+
+  - name: session_conversion_rate
+    unit: ratio
+    default_time_dimension: session_started
+    description: Sessions containing a purchase event, divided by all sessions, in the period.
+
+  - name: attribution_coverage_rate
+    unit: ratio
+    default_time_dimension: user_created
+    description: >
+      Share of users (or sessions, via session_traffic_source) with a known,
+      non-null traffic_source. Governed-stack only -- it exists to expose where
+      acquisition-channel data is missing, not to explain the missing values away.
+      A drop in this metric means "we stopped knowing," not "the channel declined."
+
+dimensions:
+  - name: order_created
+    type: time
+    grains: [day, week, month, quarter, year]
+    description: The order item's created_at, truncated to the requested grain.
+
+  - name: user_created
+    type: time
+    grains: [day, week, month, quarter, year]
+    description: The user's signup date (users.created_at), truncated to the requested grain.
+
+  - name: session_started
+    type: time
+    grains: [day, week, month, quarter, year]
+    description: A session's first event timestamp, truncated to the requested grain.
+
+  - name: customer_cohort_month
+    type: time
+    grains: [month]
+    description: >
+      The calendar month of a customer's first-ever order (see `new_customers`).
+      Fixed at month grain -- it's a cohort label, not a queryable event time.
+
+  - name: category
+    type: categorical
+    description: >
+      products.category, as entered in the source system. Not stable over time --
+      see category_family for a definition that survives a rename.
+
+  - name: category_family
+    type: categorical
+    description: >
+      A stable grouping that maps a renamed category's old and new names to one
+      lineage. Prefer this over `category` for any trend that spans a rename.
+
+  - name: brand
+    type: categorical
+    description: products.brand.
+
+  - name: department
+    type: categorical
+    description: products.department (Men or Women).
+
+  - name: customer_country
+    type: categorical
+    description: users.country.
+
+  - name: customer_age_band
+    type: categorical
+    description: A banded version of users.age (e.g. 18-24, 25-34, ...).
+
+  - name: customer_gender
+    type: categorical
+    description: users.gender.
+
+  - name: acquisition_channel
+    type: categorical
+    description: >
+      users.traffic_source, the channel a customer signed up through. A NULL value
+      is shown as "Unattributed" rather than dropped -- see attribution_coverage_rate.
+
+  - name: session_traffic_source
+    type: categorical
+    description: >
+      events.traffic_source for a session. Uses a different vocabulary than
+      acquisition_channel (e.g. "Adwords" here vs "Search" there) because it comes
+      from a separate tracking system; the two are not directly comparable.
+
+  - name: distribution_center
+    type: categorical
+    description: The fulfilling distribution_centers.name for an order item.
+
+  - name: item_status
+    type: categorical
+    description: >
+      An order item's lifecycle status (Processing, Shipped, Complete, Cancelled,
+      Returned). Most metrics already filter on this; use it directly only when a
+      question is specifically about status mix.
