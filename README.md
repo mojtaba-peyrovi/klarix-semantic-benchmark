@@ -39,10 +39,10 @@ answer. Everything flows through one pipeline (terms are defined in the Glossary
 ```mermaid
 graph TD
     A["data/snapshot/*.parquet<br/>frozen pull of theLook, local Parquet, never re-pulled<br/>Milestone 2 — DONE"]
-    B["data/true/*.parquet<br/>snapshot clipped to the 24-month window, + P5 applied<br/>Milestone 3 — not started"]
+    B["data/true/*.parquet<br/>snapshot clipped to the 24-month window, + P5 applied<br/>Milestone 3 — DONE"]
     C["data/observed/*.parquet<br/>true world + P2/P3/P4 injected artifacts<br/>what the warehouse sees"]
     D["data/truth/*.parquet + answers.json<br/>correct answers, computed independently with DuckDB<br/>straight from the true world — never via BigQuery or Cube"]
-    E["apparel_ecom_raw (BigQuery)<br/>Milestone 5 — not started"]
+    E["apparel_ecom_raw (BigQuery)<br/>Milestone 5 — DONE"]
     F["staging → star schema → marts<br/>apparel_ecom_staging / _star / _marts"]
     G["Cube Core semantic layer<br/>Milestone 7 — not started"]
     H["LLM agent (Gemini / Claude)<br/>answers the 20 golden questions<br/>Milestones 8-9"]
@@ -77,6 +77,112 @@ duckdb -c "SELECT status, count(*) FROM 'data/snapshot/order_items.parquet' GROU
 
 or interactively with `duckdb`, or from Python with `duckdb.connect()` and a `SELECT * FROM
 'data/snapshot/orders.parquet'`. `data/snapshot/PROFILE.md` has a full breakdown per table already.
+
+## Star schema
+
+The Kimball star schema built in `apparel_ecom_star` (Milestone 5, `project1-gcp-cube/bigquery/
+sql/20_star/`). All dimension keys are `FARM_FINGERPRINT` surrogates, and every dimension carries
+a `-1` unknown member so a fact row always resolves, even a legitimately-missing reference. See the
+Glossary below for what a dimension/fact/grain/surrogate key/unknown member is, and `CLAUDE.md` for
+why `map_category_family` is a hand-maintained table rather than a formula.
+
+```mermaid
+erDiagram
+    dim_customer ||--o{ fct_order_items : customer_key
+    dim_product ||--o{ fct_order_items : product_key
+    dim_date ||--o{ fct_order_items : "created/shipped/delivered/returned"
+    dim_customer ||--o{ fct_orders : customer_key
+    dim_date ||--o{ fct_orders : order_date_key
+    dim_customer ||--o{ fct_sessions : customer_key
+    dim_date ||--o{ fct_sessions : session_date_key
+    map_category_family ||--o{ dim_product : "category → category_family"
+    dim_distribution_center ||--o{ dim_product : "denormalized: distribution_center_name"
+
+    dim_date {
+        int64 date_key PK
+        date date
+        date week_start
+        date month
+        date quarter
+        int64 year
+        int64 day_of_week
+        bool is_weekend
+    }
+    dim_customer {
+        int64 customer_key PK
+        int64 user_id
+        string gender
+        int64 age
+        string age_band
+        string country
+        string state
+        string city
+        string acquisition_channel "NULL -> Unattributed (P3)"
+        int64 created_date_key FK
+        date customer_cohort_month
+        bool is_internal "rule-based (P4)"
+    }
+    dim_product {
+        int64 product_key PK
+        int64 product_id
+        string name
+        string brand
+        string category
+        string category_family FK "survives a rename (P2)"
+        string department
+        float64 retail_price
+        float64 cost
+        string distribution_center_name
+    }
+    dim_distribution_center {
+        int64 distribution_center_key PK
+        int64 distribution_center_id
+        string name
+        float64 latitude
+        float64 longitude
+    }
+    map_category_family {
+        string category PK
+        string category_family
+    }
+    fct_order_items {
+        int64 order_item_id PK
+        int64 order_id
+        int64 customer_key FK
+        int64 product_key FK
+        int64 created_date_key FK
+        int64 shipped_date_key FK
+        int64 delivered_date_key FK
+        int64 returned_date_key FK
+        string item_status
+        bool is_cancelled
+        bool is_returned
+        float64 sale_price
+        float64 cost
+        float64 net_sale_price "0 if cancelled/returned"
+        float64 net_cost "0 if cancelled/returned"
+    }
+    fct_orders {
+        int64 order_id PK
+        int64 customer_key FK
+        int64 order_date_key FK
+        string status
+        int64 item_count
+        float64 gross_revenue
+        float64 net_revenue
+        bool is_first_order "only among gross_revenue > 0 orders"
+        int64 order_sequence_number
+    }
+    fct_sessions {
+        int64 session_key PK
+        int64 customer_key FK "unknown (-1) if anonymous"
+        timestamp session_start_ts
+        int64 session_date_key FK
+        string session_traffic_source "NULL -> Unattributed (P3)"
+        int64 event_count
+        bool has_purchase
+    }
+```
 
 ## Layout
 
