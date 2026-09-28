@@ -103,15 +103,19 @@ def check_query_quota(s: Settings) -> Result:
 
 
 def _judge_quota(metric: dict) -> Result:
+    # The API reports units like "1/d/{project}"; the per-user row is "1/d/{project}/{user}".
     for limit in metric.get("consumerQuotaLimits", []):
-        if "/d/project" not in limit.get("unit", ""):
+        if limit.get("unit") != "1/d/{project}":
             continue
         effective = int(limit["quotaBuckets"][0].get("effectiveLimit", "-1"))
         unit = metric.get("unit", "")
         if effective < 0:
             return FAIL, "query usage per day is unlimited; set the 10 GiB cap (SETUP.md step 3)"
-        if "MiBy" in unit and effective > DAILY_QUOTA_TARGET_MIB:
-            return WARN, f"daily cap is {effective} MiB, above the 10 GiB target"
+        if unit == "MiBy" and effective > DAILY_QUOTA_TARGET_MIB:
+            return (
+                FAIL,
+                f"daily cap is {effective} MiB, above the 10 GiB target (SETUP.md step 3)",
+            )
         return PASS, f"daily query cap = {effective} {unit}"
     return WARN, "no per-day project limit found; verify the quota in the console"
 
