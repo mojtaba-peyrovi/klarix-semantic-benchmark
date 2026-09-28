@@ -50,11 +50,58 @@ class BenchmarkSettings(BaseModel):
     window_months: int
 
 
+class CategoryRename(BaseModel):
+    """P2: a mid-sized category renamed partway through the window (DEV_PLAN 6.2)."""
+
+    old_name: str
+    new_name: str
+    rename_date: date
+    family: str
+
+
+class ConsentLoss(BaseModel):
+    """P3: users and sessions created on/after consent_date lose their traffic_source."""
+
+    consent_date: date
+    affected_share: float
+
+
+class InternalUsers(BaseModel):
+    """P4: injected internal/test accounts, excluded from every governed metric."""
+
+    count: int
+    country: str
+    email_domain: str
+    name_prefixes: list[str]
+    orders_per_user: tuple[int, int]
+    items_per_order: tuple[int, int]
+    sale_price_range: tuple[float, float]
+    repeat_within_days: int
+
+
+class HighReturnCohort(BaseModel):
+    """P5: a real signal applied to the true world (not a data artifact)."""
+
+    traffic_source: str
+    cohort_start: date
+    cohort_end: date
+    return_probability: float
+    return_lag_days: tuple[int, int]
+
+
+class PlantedProblems(BaseModel):
+    p2_category_rename: CategoryRename
+    p3_consent_loss: ConsentLoss
+    p4_internal_users: InternalUsers
+    p5_high_return_cohort: HighReturnCohort
+
+
 class Settings(BaseModel):
     seed: int
     benchmark: BenchmarkSettings
     gcp: GcpSettings
     models: ModelSettings
+    planted_problems: PlantedProblems
 
 
 def load_settings(path: Path = SETTINGS_PATH) -> Settings:

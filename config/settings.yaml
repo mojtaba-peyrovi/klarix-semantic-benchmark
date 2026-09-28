@@ -3,9 +3,10 @@
 seed: 20260925
 
 benchmark:
-  # Last complete month of the snapshot. Set after Milestone 2 profiling.
-  end_date: null
-  window_months: 24
+  # Confirmed Milestone 2 (2026-09-28): last complete month in the snapshot; September
+  # 2026 is both partial and anomalous (3.5x normal signups) so it's dropped.
+  end_date: 2026-08-31
+  window_months: 24 # -> window starts 2024-09-01
 
 gcp:
   # The GCP project "Klarix" hosts several portfolio projects; each prefixes its
@@ -34,4 +35,48 @@ models:
     gemini-3.8-flash: { input: 0.82, output: 4.13 }
     claude-opus-5: { input: 5.00, output: 25.00 }
 
-# Planted-problem parameters (P2-P5) are added after Milestone 2 calibration.
+# Planted-problem parameters, calibrated from data/snapshot/PROFILE.md and confirmed
+# by the user on 2026-09-28 (Milestone 2). See README.md Glossary for what each means
+# and DEV_PLAN.md section 6.2 for the injection mechanics.
+planted_problems:
+  # P2: category rename (data artifact). Sweaters is mid-sized (~219 items/month, #7 of
+  # 26 categories) and stable month-over-month (-4.7% Sep->Oct 2025, well under the
+  # test's 15% limit). The true biggest decliner that month is a different category
+  # (Fashion Hoodies & Sweatshirts, -14.3%), which gives Q11 a clean trap.
+  p2_category_rename:
+    old_name: Sweaters
+    new_name: Knitwear
+    rename_date: 2025-10-01
+    family: sweaters_knitwear
+
+  # P3: consent tracking loss (data artifact). Top source is Search for users (~70%,
+  # stable within +/-2pts/month) and Adwords for sessions (~30%, stable) -- treating
+  # "Search" as the paid-search channel affected is this project's reading of the data.
+  p3_consent_loss:
+    consent_date: 2026-03-01
+    affected_share: 0.30
+
+  # P4: internal/test users (hygiene). The plan's default of ~150 users moves the 90-day
+  # repeat-purchase rate by only ~0.35pts against a 2pt test threshold, so the count is
+  # raised to 900. Modeled effect: +2.2pts repeat rate, ~-6% AOV, ~3.6k fake orders
+  # against ~59k real orders in the window.
+  p4_internal_users:
+    count: 900
+    country: United States
+    email_domain: thelook-internal.com
+    name_prefixes: [Test, QA, Demo]
+    orders_per_user: [2, 6]
+    items_per_order: [1, 3]
+    sale_price_range: [0.01, 1.00]
+    repeat_within_days: 90 # each user's 2nd order lands inside the 90-day repeat window
+
+  # P5: high-return acquisition cohort (real signal, applied to the TRUE world before
+  # P2-P4 are injected). Modeled effect: cohort return rate ~14.3% -> ~40%, against
+  # ~12.5% for other Facebook cohorts (clears the 20pt test). Company-wide net margin
+  # moves by ~0.1%, so Q18/Q19 are scoped to the cohort rather than the whole channel.
+  p5_high_return_cohort:
+    traffic_source: Facebook
+    cohort_start: 2025-05-01
+    cohort_end: 2025-07-31
+    return_probability: 0.80
+    return_lag_days: [5, 20] # days after delivered_at

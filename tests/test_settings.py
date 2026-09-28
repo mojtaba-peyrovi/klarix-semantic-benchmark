@@ -30,3 +30,18 @@ def test_every_configured_model_has_a_price():
     m = load_settings().models
     for model_id in (m.gemini, m.anthropic_agent, m.judge):
         assert model_id in m.prices, f"no token price for {model_id}"
+
+
+def test_planted_problem_dates_fall_inside_the_window():
+    s = load_settings()
+    start = s.benchmark.end_date.replace(
+        year=s.benchmark.end_date.year - s.benchmark.window_months // 12
+    )
+    p = s.planted_problems
+    for d in (
+        p.p2_category_rename.rename_date,
+        p.p3_consent_loss.consent_date,
+        p.p5_high_return_cohort.cohort_start,
+        p.p5_high_return_cohort.cohort_end,
+    ):
+        assert start <= d <= s.benchmark.end_date

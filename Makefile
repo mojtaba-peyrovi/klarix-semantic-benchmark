@@ -12,7 +12,8 @@ gcp-check:
 	uv run python project1-gcp-cube/gcp/check.py
 
 snapshot:
-	$(call todo,2)
+	uv run python -m shared.snapshot.pull
+	uv run python -m shared.snapshot.profile
 
 world:
 	$(call todo,3)
