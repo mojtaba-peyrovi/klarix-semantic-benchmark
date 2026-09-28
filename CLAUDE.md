@@ -3,6 +3,14 @@
 The full development plan is [docs/DEV_PLAN.md](docs/DEV_PLAN.md). Read it before working. Go
 milestone by milestone and stop after each one for review.
 
+**Portfolio intent:** the real goal is three separate, standalone consulting-portfolio case
+studies, one per semantic-layer stack (see the table in DEV_PLAN.md section 1). The shared
+benchmark (one dataset, one set of planted problems, one set of golden questions) exists only to
+build all three fairly and cheaply; the cross-stack comparison report is a bonus, not the main
+deliverable. **Build the stacks one at a time, fully, in order** (Project 1 through its own
+Milestone 10 case-study README before starting Project 2's stack), rather than advancing all three
+through the shared milestones in lockstep.
+
 ## Decisions made so far (deviations from or additions to the plan)
 
 - **GCP project:** display name "Klarix", ID `klarix-509711`. It's an umbrella project for several
