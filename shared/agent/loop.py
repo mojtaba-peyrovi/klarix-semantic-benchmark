@@ -10,6 +10,7 @@ a turn made before the conversation continues.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import date
 from typing import Any
 
@@ -71,12 +72,22 @@ def run_agent(
     backend: Backend,
     benchmark_date: date,
     models: ModelSettings | None = None,
+    on_turn: Callable[[ToolCallRecord], None] | None = None,
 ) -> AgentRun:
+    """`on_turn`, if given, is called right after each tool call is recorded --
+    lets a caller print progress live instead of waiting in silence for the whole
+    run (a single provider round-trip can take 30-90s)."""
     start = time.monotonic()
     prompt = system_prompt(benchmark_date, MAX_TOOL_CALLS)
     provider.start(prompt, TOOL_SPECS)
 
     turns: list[ToolCallRecord] = []
+
+    def record(name: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
+        turns.append(ToolCallRecord(name=name, arguments=arguments, result=result))
+        if on_turn:
+            on_turn(turns[-1])
+
     input_tokens = output_tokens = 0
     calls_made = 0
     terminal_tool: str | None = None
@@ -91,11 +102,7 @@ def run_agent(
         if terminal_call is not None:
             terminal_tool = terminal_call.name
             output = terminal_call.arguments
-            turns.append(
-                ToolCallRecord(
-                    name=terminal_call.name, arguments=terminal_call.arguments, result={}
-                )
-            )
+            record(terminal_call.name, terminal_call.arguments, {})
             break
 
         results = []
@@ -104,7 +111,7 @@ def run_agent(
                 result = execute_tool(call.name, call.arguments, backend)
             except Exception as exc:
                 result = {"error": str(exc)}
-            turns.append(ToolCallRecord(name=call.name, arguments=call.arguments, result=result))
+            record(call.name, call.arguments, result)
             results.append(result)
         calls_made += len(turn.tool_calls)
 
@@ -122,7 +129,7 @@ def run_agent(
         output = _force_final_answer_output(forced)
         if forced.tool_calls:
             call = forced.tool_calls[0]
-            turns.append(ToolCallRecord(name=call.name, arguments=call.arguments, result={}))
+            record(call.name, call.arguments, {})
 
     return AgentRun(
         question=question,
