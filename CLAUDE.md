@@ -29,6 +29,13 @@ through the shared milestones in lockstep.
 - **Per-query guard:** every BigQuery job sets `maximum_bytes_billed` from `config/settings.yaml`.
 - **Windows:** `make` may not be installed (`winget install ezwinports.make`). Every target is a
   thin `uv run ...` wrapper.
+- **Windows + LLM output text:** a redirected/non-interactive stdout defaults to cp1252, not
+  UTF-8, and LLM answer text routinely contains characters (arrows, em dashes, curly quotes)
+  cp1252 can't encode -- the process crashes with `UnicodeEncodeError` right when it tries to
+  print, which can look like a silent hang if the crash comes after a long run (found this in
+  `shared/agent/smoke_test.py`). Any script that prints LLM-generated text (the Milestone 8 eval
+  runner will do this constantly) should open with
+  `sys.stdout.reconfigure(encoding="utf-8", errors="replace")` before printing anything.
 - **Daily query quota:** the 10 GiB project cap is not set (still the 200 TiB default). The user
   chose to ignore it for now; `gcp-check` reports it as FAIL. The per-query guard still applies.
 - **Snapshot:** pulled 2026-09-28 07:54 UTC (upstream generation of 03:39 UTC), 325.5 MB scanned.
