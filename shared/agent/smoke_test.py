@@ -43,6 +43,9 @@ def main() -> None:
         console.print(f"latency: {run.latency_ms}ms")
         for t in run.turns:
             console.print(f"  [{t.name}] {json.dumps(t.arguments)[:200]}")
+            if t.name == "run_semantic_query" and t.result.get("compiled_query"):
+                console.print(f"    SQL: {t.result['compiled_query']}")
+                console.print(f"    -> {t.result['columns']} {t.result['rows'][:3]}")
         console.print("output:")
         console.print_json(json.dumps(run.output))
 
