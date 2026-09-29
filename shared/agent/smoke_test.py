@@ -22,6 +22,15 @@ from shared.settings import load_settings
 
 QUESTION = "How many orders did we have last month?"
 
+# Windows defaults a redirected/non-interactive stdout to the system ANSI code
+# page (cp1252), not UTF-8. The LLM's own answer text routinely contains
+# characters cp1252 can't encode (arrows, em dashes, curly quotes), which
+# otherwise crashes the process right as it's about to print the final answer --
+# after the whole run has already completed. errors="replace" is a last-resort
+# safety net if some other encoding issue slips through.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # Force line buffering: stdout is block-buffered when it's not a real terminal
 # (piped, redirected to a file), which would otherwise silently sit on every
 # print below until the buffer fills or the process exits -- indistinguishable
