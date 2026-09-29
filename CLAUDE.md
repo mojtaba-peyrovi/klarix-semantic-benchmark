@@ -104,5 +104,29 @@ through the shared milestones in lockstep.
   - `fct_orders` keeps fully-cancelled orders as rows (gross_revenue = 0) rather than dropping
     them; `is_first_order`/`order_sequence_number` are only assigned among orders with
     gross_revenue > 0 (the same "orders" definition as the metric catalog and truth.py).
-- **Next:** Milestone 6 (agent and baseline: `shared/backends/{base,naive_bigquery}.py`, the
-  agent loop, both providers) per DEV_PLAN.md section 11.
+- **Milestone 6** (agent and baseline): done. `shared/backends/{base,naive_bigquery}.py`,
+  `shared/agent/{tools,prompts,loop}.py`, `shared/agent/providers/{base,gemini_vertex,
+  anthropic_provider}.py`. `make agent-smoke` runs one question end to end on both providers
+  against `naive_bigquery` -- confirmed live, both reach `final_answer` with the correct number.
+  - **A model turn can request several tool calls at once** (both Gemini and Claude do this) --
+    discovered live: Gemini errored ("number of function response parts...") when the loop only
+    answered the first call of a multi-call turn. The loop and both providers now execute every
+    call in a turn and send all results back together in one round-trip
+    (`Provider.send_tool_results`, plural).
+  - `naive_bigquery` restricts a single query to one "metric family" (transactional order-item
+    metrics; `signups`; `sessions`/`session_conversion_rate`; the two cohort metrics
+    `new_customers`/`repeat_purchase_rate_90d`) -- realistic for a semantic layer with no
+    fan-out-safe join graph across those grains, and it keeps the compiler simple. A mixed
+    request comes back as a warning, not a crash, so the agent can split it into two calls.
+  - `attribution_coverage_rate` is the only metric marked unavailable (per DEV_PLAN 11.2);
+    `category_family` and `customer_cohort_month` are the only dimensions not offered at all,
+    since both need governed-layer logic no raw-table query can produce.
+  - The naive backend's BigQuery client is lazy (built on first `run()`, not in `__init__`), so
+    `tests/test_naive_bigquery.py` can test SQL compilation and error handling without live
+    credentials.
+  - `AgentRun.estimated_cost_usd` is computed from `config/settings.yaml`'s `models.prices` and is
+    `None` if `run_agent()` isn't given `models` (as the unit tests don't, deliberately).
+  - `MAX_TOOL_CALLS = 8` counts individual tool calls, not round-trips -- a turn with 3 parallel
+    calls counts as 3 toward the budget, matching the plan's "max 8 tool calls" literally.
+- **Next:** Milestone 7 (Cube Core: docker-compose, cube/view YAML models, the JWT-authed
+  adapter, the contract test, the layer correctness test) per DEV_PLAN.md section 10.

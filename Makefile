@@ -1,4 +1,4 @@
-.PHONY: setup gcp-check snapshot world bq-load bq-build bq-test cube-up cube-test eval compare test lint
+.PHONY: setup gcp-check snapshot world bq-load bq-build bq-test agent-smoke cube-up cube-test eval compare test lint
 
 BACKEND ?= cube
 PROVIDER ?= gemini
@@ -28,6 +28,9 @@ bq-build:
 
 bq-test:
 	uv run python project1-gcp-cube/bigquery/run_tests.py
+
+agent-smoke:
+	uv run python -m shared.agent.smoke_test
 
 cube-up:
 	$(call todo,7)

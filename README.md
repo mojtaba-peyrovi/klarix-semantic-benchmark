@@ -44,7 +44,7 @@ graph TD
     D["data/truth/*.parquet + answers.json<br/>correct answers, computed independently with DuckDB<br/>straight from the true world — never via BigQuery or Cube"]
     E["apparel_ecom_raw (BigQuery)<br/>Milestone 5 — DONE"]
     F["staging → star schema → marts<br/>apparel_ecom_staging / _star / _marts<br/>Milestone 5 — DONE"]
-    G1["naive_bigquery backend<br/>raw tables, no governance<br/>Milestone 6 — not started"]
+    G1["naive_bigquery backend<br/>raw tables, no governance<br/>Milestone 6 — DONE"]
     G2["Cube Core semantic layer<br/>governed, built on the star schema<br/>Milestone 7 — not started"]
     H["LLM agent (Gemini / Claude)<br/>answers the 20 golden questions<br/>against EITHER backend<br/>Milestone 6, then 8-9"]
 
