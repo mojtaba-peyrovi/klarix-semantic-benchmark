@@ -1,6 +1,16 @@
 """The system prompt (DEV_PLAN section 11.5). Identical across providers and
 backends. Never mentions or hints at the planted problems -- the agent has to
-notice them from the data, the same way a real analyst would."""
+notice them from the data, the same way a real analyst would.
+
+`benchmark_date` (config/settings.yaml's benchmark.end_date) is the last day of the
+last COMPLETE month in the data, not "today" -- stating it as "today's date" was
+tried first and found live (Milestone 8's eval smoke test) to be genuinely
+ambiguous: a model reading "today is 2026-08-31" can reasonably resolve "last
+month" to July (the previous calendar month) instead of August (the month that just
+finished), which is what every truth.py "last_month"/"last_quarter"/etc. reference
+actually means. Naming the completed month explicitly removes the ambiguity instead
+of relying on the model to infer it from a boundary date.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +20,10 @@ SYSTEM_PROMPT_TEMPLATE = """\
 You are an analyst for theLook, a D2C apparel e-commerce company, answering \
 questions for company leadership.
 
-Today's date, for resolving relative time references such as "last month" or \
-"this quarter", is {benchmark_date}.
+The most recently completed calendar month is {last_complete_month}, with data \
+through {benchmark_date}. Resolve every relative time reference ("last month", \
+"this quarter", "the last 6 months", ...) relative to {last_complete_month} as the \
+most recent complete period -- not relative to any other notion of "today".
 
 You may only get numbers through the tools you're given (list_metrics, \
 list_dimensions, run_semantic_query). Never guess a number or compute one \
@@ -33,6 +45,9 @@ Ground rules:
 
 
 def system_prompt(benchmark_date: date, max_tool_calls: int) -> str:
+    last_complete_month = benchmark_date.strftime("%B %Y")
     return SYSTEM_PROMPT_TEMPLATE.format(
-        benchmark_date=benchmark_date.isoformat(), max_tool_calls=max_tool_calls
+        benchmark_date=benchmark_date.isoformat(),
+        last_complete_month=last_complete_month,
+        max_tool_calls=max_tool_calls,
     )

@@ -169,10 +169,16 @@ def _make_internal_orders(
     next_order_id, next_item_id = max_order_id + 1, max_item_id + 1
     for uid, signup in signups.items():
         n_orders = int(rng.integers(lo_o, hi_o + 1))
-        days_available = max((end - signup).days, 1)
+        # All of a user's orders land within repeat_within_days of their OWN
+        # signup, not spread anywhere up to the fixed window end -- drawing from
+        # Uniform(0, end - signup) instead (found live, Milestone 8) makes the
+        # per-user horizon grow for anyone who signed up early, and since order
+        # date T's marginal density integrates to ~ln(window / (window - T)), that
+        # systematically piles injected orders up near the window's end date
+        # (683 extra observed orders in the single last month alone) instead of
+        # spreading them roughly evenly like a small background of test traffic.
+        days_available = max(min((end - signup).days, p4.repeat_within_days), 1)
         order_days = sorted(int(d) for d in rng.integers(0, days_available + 1, n_orders))
-        if n_orders >= 2:
-            order_days[1] = min(order_days[1], order_days[0] + p4.repeat_within_days)
 
         for od in order_days:
             created = min(signup + timedelta(days=od), end)

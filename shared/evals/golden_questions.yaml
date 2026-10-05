@@ -1,0 +1,359 @@
+# The 20 benchmark questions (DEV_PLAN section 12.1), each asked as 3 paraphrases.
+# `expected.truth_ref` is a dotted path into data/truth/answers.json (a bare name
+# like `top_5_brands_12m` means the whole top-level key -- usually a list, for
+# `kind: table`/`insight` questions where the rubric does the real judging).
+# `expected.kind`: numeric | table | clarification | insight.
+#
+# Dates and names below are filled from config/settings.yaml's confirmed
+# planted-problem parameters (see CLAUDE.md), not invented. The benchmark's "today"
+# is 2026-08-31 (shared/agent/prompts.py's system prompt states this explicitly),
+# so "last month" = August 2026, "last quarter" = Jun-Aug 2026, "last 12 months" =
+# Sep 2025-Aug 2026, "last 6 months" = Mar-Aug 2026.
+
+- id: Q01
+  category: straightforward
+  planted_problem: P4
+  paraphrases:
+    - "How many orders did we have last month?"
+    - "What was our order count for last month?"
+    - "Give me last month's total number of orders."
+  expected:
+    kind: numeric
+    truth_ref: last_month.orders
+    tolerance_pct: 2.0
+  rubric: >
+    The answer should be clearly about August 2026 (the last complete month before
+    the benchmark's "today" of 2026-08-31). Pass if the order count matches truth
+    within tolerance. An ungoverned/naive backend structurally can't exclude P4's
+    internal/test accounts and will land noticeably above truth for a single recent
+    month specifically (order counts are more P4-sensitive than dollar metrics,
+    since P4's orders are numerous but each is worth $0.01-$1.00) -- that's expected
+    and still passes as long as the answer flags it as a likely data-quality
+    artifact rather than reporting the inflated count at face value.
+
+- id: Q02
+  category: straightforward
+  paraphrases:
+    - "What was net revenue last month?"
+    - "How much net revenue did we bring in last month?"
+    - "Last month's net revenue -- what was it?"
+  expected:
+    kind: numeric
+    truth_ref: last_month.net_revenue
+    tolerance_pct: 2.0
+  rubric: >
+    Pass if the reported net revenue matches truth within tolerance. The question
+    says "net" explicitly, so gross revenue alone (without also giving net) fails.
+
+- id: Q03
+  category: straightforward
+  paraphrases:
+    - "What are our top 5 brands by net revenue in the last 12 months?"
+    - "Rank our 5 best-performing brands over the past year by net revenue."
+    - "Which 5 brands generated the most net revenue in the trailing 12 months?"
+  expected:
+    kind: table
+    truth_ref: top_5_brands_12m
+    tolerance_pct: 5.0
+  rubric: >
+    Pass if the 5 brands named match truth_ref's brand set (order may vary slightly
+    if figures are close) and figures are within tolerance where given.
+
+- id: Q04
+  category: straightforward
+  planted_problem: P4
+  paraphrases:
+    - "Which country has the most purchasing customers?"
+    - "What's our #1 country by number of paying customers?"
+    - "Rank countries by purchasing-customer count -- which comes out on top?"
+  expected:
+    kind: numeric
+    truth_ref: purchasing_customers_by_country.0.purchasing_customers
+    tolerance_pct: 5.0
+  rubric: >
+    Pass if the answer names the correct top country (China, per truth) with a
+    customer count within tolerance. P4's internal/test accounts are all US-based
+    but few (1000) against a much larger true gap between the top two countries, so
+    this is a minor, expected wobble, not a hard fail if the country is still
+    correct -- fail only if P4 pollution flips the ranked #1 country.
+
+- id: Q05
+  category: straightforward
+  planted_problem: P4
+  paraphrases:
+    - "What were monthly signups for the last 6 months?"
+    - "Show me signups by month for the past 6 months."
+    - "How many new user signups did we get each month over the last half year?"
+  expected:
+    kind: table
+    truth_ref: signups_last_6_months
+    tolerance_pct: 5.0
+  rubric: >
+    Pass if the 6 monthly signup figures are within tolerance of truth_ref. P4's
+    internal accounts are a small share of any one month's signups -- a minor,
+    expected deviation, not a hard fail unless a month is off by more than tolerance.
+
+- id: Q06
+  category: definition
+  planted_problem: P1
+  paraphrases:
+    - "What was revenue last quarter?"
+    - "How much revenue did we make in the last quarter?"
+    - "Last quarter's revenue -- what number should I put in the board deck?"
+  expected:
+    kind: numeric
+    truth_ref: last_quarter
+    tolerance_pct: 3.0
+  rubric: >
+    "Revenue" is ambiguous (gross vs net -- P1). Pass only if the answer explicitly
+    states which one it's reporting (gross_revenue or net_revenue from truth_ref,
+    either is acceptable) and the number matches that field within tolerance. Fail
+    if a number is given with no stated definition.
+
+- id: Q07
+  category: definition
+  planted_problem: [P1, P4]
+  paraphrases:
+    - "What is our average order value?"
+    - "What's the AOV across the whole window?"
+    - "On average, how much is a single order worth to us?"
+  expected:
+    kind: numeric
+    truth_ref: window_totals.aov
+    tolerance_pct: 3.0
+  rubric: >
+    Pass if the answer states AOV = net_revenue / orders (or an equivalent stated
+    definition) and the number is within tolerance of truth_ref. If the reported
+    number is far below truth (P4's internal test orders sell at $0.01-$1.00 and
+    would drag a naive, unfiltered AOV down sharply), the answer should flag this as
+    a likely data-quality artifact rather than reporting it at face value -- that
+    caveat alone is enough to pass even if the number itself is off.
+
+- id: Q08
+  category: definition
+  paraphrases:
+    - "What is our return rate?"
+    - "What share of items get returned?"
+    - "How often do customers send things back?"
+  expected:
+    kind: numeric
+    truth_ref: window_totals.return_rate
+    tolerance_pct: 3.0
+  rubric: >
+    Pass if the answer states an item-based definition (returned items / non-cancelled
+    items sold, not a revenue-based ratio) and the number is within tolerance.
+
+- id: Q09
+  category: definition
+  paraphrases:
+    - "What is our conversion rate?"
+    - "What share of visits actually convert?"
+    - "How well are our sessions converting into purchases?"
+  expected:
+    kind: numeric
+    truth_ref: window_totals.session_conversion_rate
+    tolerance_pct: 5.0
+  rubric: >
+    Pass if the answer states the definition it used (sessions with a purchase
+    event / all sessions -- the only "conversion rate" this catalog offers) and the
+    number is within tolerance.
+
+- id: Q10
+  category: trap
+  planted_problem: P2
+  paraphrases:
+    - "How has Knitwear performed over the last 12 months?"
+    - "Give me the 12-month trend for the Knitwear category."
+    - "What do Knitwear sales look like over the past year?"
+  expected:
+    kind: insight
+    truth_ref: category_family_trend_12m
+  rubric: >
+    Knitwear was called Sweaters before 2025-10-01 (P2, a data artifact, not a real
+    rename of business meaning). Pass only if the answer reports a continuous trend
+    combining Sweaters-before and Knitwear-after (or explicitly says the category
+    was renamed and it combined both), matching category_family_trend_12m's
+    "Sweaters" rows plus any "Knitwear" rows. Fail if it reports Knitwear's history
+    as starting from ~0 at the rename, or treats the pre-rename drop in "Sweaters"
+    as a real decline.
+
+- id: Q11
+  category: trap
+  planted_problem: P2
+  paraphrases:
+    - "Which category declined the most in October 2025?"
+    - "What had the biggest month-over-month drop going into October 2025?"
+    - "Looking at October 2025 vs September 2025, which category fell hardest?"
+  expected:
+    kind: insight
+    truth_ref: category_decline_after_rename
+  rubric: >
+    Two traps stack here. (1) Sweaters appears to crash ~-100% that month because it
+    was renamed to Knitwear (P2) -- fail if the answer names Sweaters or Knitwear as
+    the decliner without noting this is a rename artifact (the combined family only
+    moved -4.7%, per truth_ref's own "Sweaters" row). (2) Suits (-37%) and Jumpsuits
+    & Rompers (-33%) rank higher by raw percentage than anything else, but they are
+    tiny categories (~20-40 items/month) where a small absolute change produces a
+    huge swing -- fail if either is named as the answer without flagging the low
+    volume. Pass if the answer names Fashion Hoodies & Sweatshirts (-14.3%, the
+    largest decline among categories with meaningful volume) or otherwise reasons
+    through both traps to a defensible answer.
+
+- id: Q12
+  category: trap
+  planted_problem: P3
+  paraphrases:
+    - "Is Search acquisition declining since March 2026?"
+    - "Has Search been bringing in fewer customers since March 2026?"
+    - "Search traffic looks like it's been falling since March 2026 -- is that real?"
+  expected:
+    kind: insight
+    truth_ref: channel_monthly
+  rubric: >
+    Starting 2026-03-01, a share of new users lose their recorded traffic_source
+    (P3, consent-tracking loss) -- it shows up as "Unattributed", not as Search
+    actually declining (truth_ref, filtered to acquisition_channel = Search, is flat
+    at roughly 700-800 signups/month through August 2026). Fail if the answer
+    concludes Search is genuinely declining based on a rising Unattributed share.
+    Pass if it identifies the apparent decline as a tracking/data artifact rather
+    than a real drop, ideally naming March 2026 and/or attribution_coverage_rate.
+
+- id: Q13
+  category: trap
+  planted_problem: P3
+  paraphrases:
+    - "Which channel brought the most new customers last quarter?"
+    - "Over the last 3 months, which acquisition channel drove the most new customers?"
+    - "Rank acquisition channels by new customers for the last quarter -- who's on top?"
+  expected:
+    kind: insight
+    truth_ref: channel_monthly
+  rubric: >
+    Since 2026-03-01, a growing share of new customers have no recorded channel
+    (P3) and would show as "Unattributed" if the ranking includes it uncritically.
+    Fail if "Unattributed"/NULL is reported as the top channel without caveat. Pass
+    if the answer names a real channel (Search, per truth_ref) as the top channel
+    and/or explicitly flags that a large or growing Unattributed share limits
+    confidence in the ranking.
+
+- id: Q14
+  category: trap
+  planted_problem: P4
+  paraphrases:
+    - "What share of new customers buy again within 90 days?"
+    - "What's our 90-day repeat purchase rate for new customers?"
+    - "Of customers who just made their first purchase, how many order again within 90 days?"
+  expected:
+    kind: numeric
+    truth_ref: repeat_purchase_rate_90d
+    tolerance_pct: 5.0
+  rubric: >
+    Pass if the number is within tolerance of truth_ref (~10%) AND, if it's
+    noticeably higher, the answer flags the gap as a likely data-quality issue
+    (P4's internal/test accounts each place several small orders in quick
+    succession, inflating a naive, unfiltered repeat-purchase rate) rather than
+    reporting an inflated figure at face value. A naive/ungoverned backend is
+    expected to land above truth here -- that is the intended finding, not a bug --
+    so the caveat matters as much as the number.
+
+- id: Q15
+  category: ambiguous
+  paraphrases:
+    - "How are we doing?"
+    - "Give me a general health check on the business."
+    - "So, how's the business doing overall?"
+  expected:
+    kind: clarification
+    truth_ref: window_totals
+  rubric: >
+    Pass if ask_clarification was called, or if final_answer explicitly states which
+    metrics and time period it chose to answer with (assumptions list is non-empty
+    and specific, not a vague hedge).
+
+- id: Q16
+  category: ambiguous
+  paraphrases:
+    - "What is our margin?"
+    - "What margin are we running at?"
+    - "Can you tell me our margin?"
+  expected:
+    kind: clarification
+    truth_ref: window_totals
+  rubric: >
+    "Margin" could mean gross_margin (a dollar amount) or gross_margin_pct (a
+    ratio), and could be scoped to the whole window or a recent period. Pass if
+    ask_clarification was called, or if final_answer explicitly states which margin
+    definition and time period it used before giving a number.
+
+- id: Q17
+  category: ambiguous
+  paraphrases:
+    - "Compare this month to last."
+    - "How does this month stack up against last month?"
+    - "This month vs last month -- what changed?"
+  expected:
+    kind: clarification
+    truth_ref: last_month
+  rubric: >
+    The benchmark's "today" is 2026-08-31, so "this month" (August 2026) is both
+    the current month AND the last complete month in the data -- "last month" would
+    then mean July 2026. Pass if ask_clarification was called, OR if final_answer
+    states its assumption about what "this month" and "last month" resolve to
+    (explicit stated assumptions also pass for this question specifically, per
+    DEV_PLAN 12.2) and picks a metric to compare on.
+
+- id: Q18
+  category: insight
+  planted_problem: P5
+  paraphrases:
+    - "Which acquisition channel is most profitable after returns?"
+    - "Ranking channels by margin after accounting for returns, who comes out ahead?"
+    - "Which channel gives us the best margin once you factor in returns?"
+  expected:
+    kind: insight
+    truth_ref: margin_by_channel
+  rubric: >
+    Pass if the answer computes margin as net revenue minus COGS (not gross revenue
+    alone) by channel. All five channels sit within about half a point of each
+    other (~51.7-52.0% margin, per truth_ref) -- P5's high-return Facebook cohort
+    (signups May-July 2025) is real but too small a slice of Facebook's full history
+    to move its channel-level ranking. Pass if the answer reports the channels as
+    close together / doesn't overstate a dramatic winner, and ideally notes that a
+    closer look at acquisition cohorts (not just channels) would be needed to see
+    return-driven effects. Fail if it invents a large channel-level gap the data
+    doesn't support.
+
+- id: Q19
+  category: insight
+  planted_problem: P5
+  paraphrases:
+    - "We've noticed net margin looked weaker for some customers acquired around mid-2025. Can you explain why?"
+    - "Something seems off with profitability for a group of customers who signed up in mid-2025 -- what's going on?"
+    - "Why did margin dip for a cohort of customers from around mid-2025?"
+  expected:
+    kind: insight
+    truth_ref: net_margin_by_cohort
+  rubric: >
+    Pass if the answer identifies customers who signed up via Facebook between
+    2025-05 and 2025-07 as the driver, and notes their item return rate is roughly
+    38-41% versus roughly 9-15% for adjacent months/channels (per truth_ref and
+    cohort_returns) -- a real business signal (P5), not a data artifact, so it
+    should not be described as a tracking issue. Fail if the answer claims a large
+    company-wide margin decline (the effect on total net margin is roughly 0.1%,
+    essentially invisible at the company level) or fails to narrow past "revenue is
+    down somewhere."
+
+- id: Q20
+  category: insight
+  planted_problem: P5
+  paraphrases:
+    - "Which customer cohort has the worst return behavior?"
+    - "Looking at signup cohorts, which one returns the most?"
+    - "Is there a customer cohort with an unusually high return rate?"
+  expected:
+    kind: insight
+    truth_ref: cohort_returns
+  rubric: >
+    Pass if the answer identifies the Facebook cohort signed up between 2025-05 and
+    2025-07 as having the worst (highest) item return rate, roughly 38-41% versus a
+    baseline of roughly 9-15% for neighboring months/channels (per truth_ref).

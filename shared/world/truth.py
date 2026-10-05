@@ -114,7 +114,10 @@ def monthly_metrics(con: duckdb.DuckDBPyConnection, start: date, end: date) -> p
     df = df.merge(signups, on="month", how="left").merge(sessions, on="month", how="left")
     df = df.merge(new_customers, on="month", how="left")
     df["session_conversion_rate"] = df["converted_sessions"] / df["sessions"]
-    return df.drop(columns="converted_sessions")
+    # converted_sessions is kept (not dropped) so a window-level session_conversion_rate
+    # can be computed as sum(converted_sessions) / sum(sessions), not an average of
+    # monthly rates -- the two differ when months have different session volumes.
+    return df
 
 
 def category_monthly(con: duckdb.DuckDBPyConnection, start: date, end: date) -> pd.DataFrame:
@@ -140,6 +143,40 @@ def brand_monthly(con: duckdb.DuckDBPyConnection, start: date, end: date) -> pd.
         WHERE p.brand IS NOT NULL AND oi.created_at >= '{start}' AND oi.created_at <= '{end}'
         GROUP BY 1, 2 ORDER BY 1, 2
     """).fetchdf()
+
+
+def window_purchasing_customers(con: duckdb.DuckDBPyConnection, start: date, end: date) -> int:
+    """Distinct purchasing customers over the WHOLE window -- not summable from
+    monthly_metrics (a repeat customer would be double-counted across months)."""
+    return con.sql(f"""
+        SELECT count(DISTINCT oi.user_id)
+        FROM order_items oi
+        WHERE oi.status <> 'Cancelled' AND oi.created_at >= '{start}' AND oi.created_at <= '{end}'
+    """).fetchone()[0]
+
+
+def channel_monthly(con: duckdb.DuckDBPyConnection, start: date, end: date) -> pd.DataFrame:
+    """Signups and new_customers by month x acquisition_channel (Q12/Q13's own
+    grain): whether a channel's TRUE acquisition trend actually declined, and which
+    channel brought the most new customers in a given period. Unlike the observed
+    world, traffic_source is never NULL here -- P3 (consent loss) doesn't touch the
+    true world, so this is what a governed layer's "Unattributed" bucket is
+    ultimately checked against."""
+    signups = con.sql(f"""
+        SELECT strftime(date_trunc('month', created_at), '%Y-%m') AS month,
+               traffic_source AS acquisition_channel, count(*) AS signups
+        FROM users
+        WHERE created_at >= '{start}' AND created_at <= '{end}'
+        GROUP BY 1, 2
+    """).fetchdf()
+    new_customers = con.sql(f"""
+        SELECT strftime(date_trunc('month', f.first_order_at), '%Y-%m') AS month,
+               u.traffic_source AS acquisition_channel, count(*) AS new_customers
+        FROM first_orders f JOIN users u ON u.id = f.user_id
+        WHERE f.first_order_at >= '{start}' AND f.first_order_at <= '{end}'
+        GROUP BY 1, 2
+    """).fetchdf()
+    return signups.merge(new_customers, on=["month", "acquisition_channel"], how="outer").fillna(0)
 
 
 def country_customers(con: duckdb.DuckDBPyConnection, start: date, end: date) -> pd.DataFrame:
@@ -238,6 +275,8 @@ def build_answers(
     cohorts: pd.DataFrame,
     returns: pd.DataFrame,
     margin_by_cohort: pd.DataFrame,
+    window_purchasing_customers_count: int,
+    channel: pd.DataFrame,
 ) -> dict:
     last_month = monthly["month"].max()
     last_3_months = sorted(monthly["month"])[-3:]
@@ -287,6 +326,10 @@ def build_answers(
             "cancellation_rate": window_totals["cancelled_items"] / window_totals["all_items"],
             "signups": int(window_totals["signups"]),
             "sessions": int(window_totals["sessions"]),
+            "session_conversion_rate": window_totals["converted_sessions"]
+            / window_totals["sessions"],
+            "purchasing_customers": window_purchasing_customers_count,
+            "new_customers": int(window_totals["new_customers"]),
         },
         "last_month": _records(
             monthly[monthly["month"] == last_month][["month", "orders", "net_revenue"]]
@@ -315,6 +358,18 @@ def build_answers(
         ),
         "cohort_returns": _records(returns),
         "net_margin_by_cohort": _records(margin_by_cohort),
+        # Q12/Q13 (P3): the TRUE per-channel trend, unaffected by the observed
+        # world's consent-loss nulls -- what "Unattributed" is checked against.
+        "channel_monthly": _records(channel[channel["month"].isin(monthly["month"])]),
+        # Q18: channel-level rollup of net_margin_by_cohort (same unwindowed scope --
+        # cohort membership uses full signup history, like net_margin_by_cohort itself).
+        "margin_by_channel": _records(
+            margin_by_cohort.groupby("acquisition_channel", as_index=False)[["net_revenue", "cogs"]]
+            .sum()
+            .assign(margin=lambda d: d.net_revenue - d.cogs)
+            .assign(margin_pct=lambda d: d.margin / d.net_revenue)
+            .sort_values("margin_pct", ascending=False)
+        ),
     }
 
 
@@ -340,7 +395,9 @@ def main(force: bool = typer.Option(False, help="Overwrite existing truth output
         "category_family_map": category_family_map(s, con),
         "true_user_source": true_user_source(con),
         "true_session_source": true_session_source(con),
+        "channel_monthly": channel_monthly(con, start, end),
     }
+    window_purchasing_customers_count = window_purchasing_customers(con, start, end)
 
     TRUTH_DIR.mkdir(parents=True, exist_ok=True)
     table_manifest = {}
@@ -361,6 +418,8 @@ def main(force: bool = typer.Option(False, help="Overwrite existing truth output
         tables["cohort_first_orders"],
         tables["cohort_returns"],
         tables["net_margin_by_cohort"],
+        window_purchasing_customers_count,
+        tables["channel_monthly"],
     )
     ANSWERS_PATH.write_text(json.dumps(answers, indent=2, default=str), encoding="utf-8")
 
