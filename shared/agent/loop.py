@@ -115,11 +115,35 @@ def run_agent(
             results.append(result)
         calls_made += len(turn.tool_calls)
 
-        if calls_made >= MAX_TOOL_CALLS:
-            break
         turn = provider.send_tool_results(turn.tool_calls, results)
         input_tokens += turn.input_tokens
         output_tokens += turn.output_tokens
+
+        if calls_made >= MAX_TOOL_CALLS:
+            break
+
+    # The while loop above can exit with turn.tool_calls still populated only when
+    # the budget ran out on the very turn we just answered -- those calls are new
+    # asks the model made using the tool results we just sent it. Nudging with a
+    # plain user message here (as force_final_answer() does) would leave them as
+    # tool_use blocks with no matching tool_result, which Anthropic's API rejects
+    # outright (found live: "tool_use ids were found without tool_result blocks").
+    # Gemini tolerates it, which is why only the anthropic-provider run hit this.
+    if terminal_tool is None and turn.tool_calls:
+        terminal_call = next((c for c in turn.tool_calls if c.name in TERMINAL_TOOLS), None)
+        if terminal_call is not None:
+            terminal_tool = terminal_call.name
+            output = terminal_call.arguments
+            record(terminal_call.name, terminal_call.arguments, {})
+        else:
+            terminal_tool = "max_tool_calls"
+            output = {
+                "answer": turn.text or "",
+                "key_numbers": [],
+                "assumptions": [],
+                "caveats": ["forced after the tool-call budget ran out without a clean final_answer"],
+                "confidence": "low",
+            }
 
     if terminal_tool is None:
         forced = provider.force_final_answer()

@@ -130,7 +130,14 @@ def test_handles_multiple_tool_calls_in_one_turn():
 
 
 def test_forces_final_answer_after_the_tool_call_budget():
+    # MAX_TOOL_CALLS QUERY turns exhaust the budget, plus one more scripted turn:
+    # the loop always answers the last batch of tool_calls with a matching
+    # send_tool_results round-trip before deciding the budget is spent (required
+    # so a provider like Anthropic never sees a tool_use without a tool_result),
+    # so there's one more provider turn to consume after the last QUERY is
+    # executed. It comes back with no tool_calls, so force_final_answer() runs.
     script = [ProviderTurn(tool_calls=[QUERY]) for _ in range(MAX_TOOL_CALLS)]
+    script.append(ProviderTurn(text=""))
     provider = ScriptedProvider(script, forced=ProviderTurn(text="best effort"))
     run = run_agent("q", provider, FakeBackend(), date(2026, 8, 31))
     assert run.terminal_tool == "max_tool_calls"
@@ -139,11 +146,36 @@ def test_forces_final_answer_after_the_tool_call_budget():
 
 
 def test_forced_final_answer_tool_call_is_recorded_in_turns():
+    # See test_forces_final_answer_after_the_tool_call_budget for why there's one
+    # more scripted turn than MAX_TOOL_CALLS.
     script = [ProviderTurn(tool_calls=[QUERY]) for _ in range(MAX_TOOL_CALLS)]
+    script.append(ProviderTurn(text=""))
     provider = ScriptedProvider(script, forced=ProviderTurn(tool_calls=[FINAL]))
     run = run_agent("q", provider, FakeBackend(), date(2026, 8, 31))
     assert run.terminal_tool == "final_answer"
     assert run.turns[-1].name == "final_answer"
+
+
+def test_budget_exhausted_with_pending_tool_calls_skips_force_final_answer():
+    # Regression test: found live against the real Anthropic API. If the model's
+    # very last turn (right as the budget runs out) still requests a non-terminal
+    # tool call, the loop must not call force_final_answer() -- that appends a
+    # plain user-role nudge, which would follow an unanswered tool_use block and
+    # get rejected by a provider that enforces tool_use/tool_result pairing.
+    script = [ProviderTurn(tool_calls=[QUERY]) for _ in range(MAX_TOOL_CALLS + 1)]
+    provider = ScriptedProvider(script, forced=ProviderTurn(text="should not be called"))
+    run = run_agent("q", provider, FakeBackend(), date(2026, 8, 31))
+    assert run.terminal_tool == "max_tool_calls"
+    assert "force_final_answer" not in provider.calls
+
+
+def test_budget_exhausted_with_terminal_call_in_last_turn_is_honored():
+    script = [ProviderTurn(tool_calls=[QUERY]) for _ in range(MAX_TOOL_CALLS)]
+    script.append(ProviderTurn(tool_calls=[FINAL]))
+    provider = ScriptedProvider(script)
+    run = run_agent("q", provider, FakeBackend(), date(2026, 8, 31))
+    assert run.terminal_tool == "final_answer"
+    assert "force_final_answer" not in provider.calls
 
 
 def test_backend_exceptions_become_tool_error_results_not_crashes():

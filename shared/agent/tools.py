@@ -138,6 +138,15 @@ TOOL_SPECS: list[dict[str, Any]] = [
 
 TERMINAL_TOOLS = {"ask_clarification", "final_answer"}
 
+# A safety net against an unbounded result, independent of any backend's own LIMIT
+# handling: found live when an agent asked for daily grain by category over 12
+# months with no `limit` -- naive_bigquery only applies a LIMIT when the query sets
+# one, so this came back as 8,774 rows (one run_semantic_query call alone cost
+# ~1.78M tokens once that result sat in conversation history for the rest of the
+# run, since every later turn resends it). Every backend's SemanticResult is capped
+# here rather than in each backend, so no current or future backend can repeat this.
+MAX_RESULT_ROWS = 500
+
 
 def execute_tool(name: str, arguments: dict[str, Any], backend: Backend) -> dict[str, Any]:
     """Run a non-terminal tool against a backend. Never raises for a bad LLM-supplied
@@ -151,5 +160,14 @@ def execute_tool(name: str, arguments: dict[str, Any], backend: Backend) -> dict
             query = SemanticQuery.model_validate(arguments)
         except Exception as exc:
             return {"error": f"invalid query: {exc}"}
-        return backend.run(query).model_dump(mode="json")
+        result = backend.run(query).model_dump(mode="json")
+        if len(result["rows"]) > MAX_RESULT_ROWS:
+            total = len(result["rows"])
+            result["rows"] = result["rows"][:MAX_RESULT_ROWS]
+            result["warnings"] = [
+                *result.get("warnings", []),
+                f"result had {total} rows; truncated to {MAX_RESULT_ROWS}. "
+                "Use a coarser time_grain, add filters, or set a smaller limit.",
+            ]
+        return result
     raise ValueError(f"execute_tool called on a terminal or unknown tool: {name!r}")

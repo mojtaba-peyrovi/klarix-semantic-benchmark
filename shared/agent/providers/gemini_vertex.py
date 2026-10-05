@@ -5,16 +5,30 @@ project and location from the environment, native function calling. Temperature 
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
+import httpx
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 
 from shared.agent.providers.base import Provider, ProviderTurn, ToolCall
 
 FORCE_FINAL_ANSWER_NUDGE = (
     "You're out of tool calls. Call final_answer now, using only what you already have."
 )
+
+# google-genai's own client already retries transiently (tenacity, a handful of
+# short-backoff attempts) before raising -- found live those aren't enough for a
+# 429 RESOURCE_EXHAUSTED under sustained eval-runner load against gemini-3.8-flash's
+# per-minute quota in the eu region, which can stay exhausted for well over a
+# minute. This is a second, longer-backoff retry layer around the whole call.
+# httpx.TransportError (e.g. "server disconnected without sending a response") and
+# 5xx ServerError are retried the same way -- also found live, and equally not the
+# model's fault.
+_RATE_LIMIT_RETRIES = 5
+_RATE_LIMIT_BACKOFF_S = 30
+_RETRIABLE_EXCEPTIONS = (errors.ServerError, httpx.TransportError)
 
 
 def _to_gemini_tool(tool_specs: list[dict[str, Any]]) -> types.Tool:
@@ -65,10 +79,24 @@ class GeminiVertexProvider(Provider):
         )
         return self._generate()
 
+    def _generate_with_retry(self) -> types.GenerateContentResponse:
+        for attempt in range(_RATE_LIMIT_RETRIES + 1):
+            try:
+                return self._client.models.generate_content(
+                    model=self.model, contents=self._contents, config=self._config
+                )
+            except errors.ClientError as exc:
+                if exc.code != 429 or attempt == _RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(_RATE_LIMIT_BACKOFF_S * (attempt + 1))
+            except _RETRIABLE_EXCEPTIONS:
+                if attempt == _RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(_RATE_LIMIT_BACKOFF_S * (attempt + 1))
+        raise AssertionError("unreachable")
+
     def _generate(self) -> ProviderTurn:
-        response = self._client.models.generate_content(
-            model=self.model, contents=self._contents, config=self._config
-        )
+        response = self._generate_with_retry()
         candidate = response.candidates[0]
         self._contents.append(candidate.content)
 
