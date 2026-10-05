@@ -135,5 +135,108 @@ through the shared milestones in lockstep.
     `None` if `run_agent()` isn't given `models` (as the unit tests don't, deliberately).
   - `MAX_TOOL_CALLS = 8` counts individual tool calls, not round-trips -- a turn with 3 parallel
     calls counts as 3 toward the budget, matching the plan's "max 8 tool calls" literally.
-- **Next:** Milestone 7 (Cube Core: docker-compose, cube/view YAML models, the JWT-authed
-  adapter, the contract test, the layer correctness test) per DEV_PLAN.md section 10.
+- **Milestone 7** (Cube Core): done. `project1-gcp-cube/cube/{docker-compose.yml,up.py,
+  model/{cubes,views}/*.yml}`, `project1-gcp-cube/backend/cube_backend.py`, `tests/{conftest,
+  test_cube_contract,test_cube_layer_correctness}.py`. `make cube-up` brings up one
+  `cubejs/cube:v1.7.46` container (dev mode, embedded Cube Store, no separate cubestore service);
+  `make cube-test` runs both tests. Confirmed live against BigQuery: the contract test passes
+  (the `commerce` view's measures/dimensions equal `catalog.yaml` exactly, modulo one documented
+  exception -- see below); the layer correctness test passes all 22 checks (every catalog metric
+  plus the P2 category_family-survives-the-rename check) within 0.5% of ground truth computed
+  fresh from `data/true` via DuckDB, independent of `truth.py`'s own aggregation.
+  - `project1-gcp-cube/backend/` isn't a Python package either (same hyphen reason as
+    `bigquery/`); `tests/conftest.py` loads `cube_backend.py` by file path
+    (`importlib.util.spec_from_file_location`), not `import`.
+  - **Cube's YAML same-cube column syntax is `{CUBE}.column`, not `{CUBE.column}`.** Got this
+    wrong in every join declaration on the first pass; the failure mode is a confusing
+    `"customers.created_date_key cannot be resolved"` (Cube parses `{CUBE.x}` as a foreign-cube
+    member reference, substitutes the cube's own name for `CUBE`, then fails to find member `x`
+    on it) -- found live, not from docs.
+  - **BigQuery DATE vs TIMESTAMP, twice over.** (1) Cube's `dateRange` filters compare a `type:
+    time` dimension against TIMESTAMP literals; any such dimension built on a raw DATE column
+    (`dim_date.date`, `dim_customer`/mart's `customer_cohort_month`) needs `TIMESTAMP(...)` cast
+    in its `sql:`, or BigQuery raises "No matching signature for operator >=". (2) Cube only
+    auto-qualifies a *bare* column name in `sql:` with the cube's own table alias -- the moment
+    `sql:` is an expression (any function call), you must write `{CUBE}.column` explicitly for
+    every column in it, or BigQuery raises "Column name ... is ambiguous" the moment a joined
+    cube's table happens to share that column name (`customer_cohort_month` exists on both
+    `dim_customer` and `mart_customer_cohorts`).
+  - **Cube cannot join two different fact cubes together even through one shared conformed
+    dimension** -- confirmed live (`"Can't find join path to join 'order_items', 'dates',
+    'orders', 'customers'"`), not a fan-out-safety feature for that case, just a hard limit of
+    this version. `order_items` and `orders` both needed `order_created` under the same catalog
+    name; giving them one shared view member forced that unsupported join on every
+    `orders`/`aov`/`purchasing_customers`/`new_customers` query. Fixed by exposing `orders`' own
+    `order_created` under an internal-only view alias (`orders_created`, documented in
+    `commerce.yml` and excluded from the contract test via `_INTERNAL_ONLY_DIMENSIONS`) and having
+    `cube_backend.py::_time_dimension_member` route the catalog's one "order_created" name to
+    whichever physical member the requested metrics' cube actually needs -- the agent only ever
+    sees one name. This is a genuine layer-correctness finding worth keeping for the README, not
+    just a workaround.
+  - Every ratio measure uses `SAFE_DIVIDE`, matching `naive_bigquery`'s own convention -- bare `/`
+    on two BigQuery INT64s still throws on division by zero.
+  - `up.py` resolves `CUBE_SA_KEY_PATH` to forward slashes before handing it to `docker compose`
+    as a bind-mount source (Windows backslashes break the volume syntax) and polls `/readyz`
+    instead of returning as soon as `docker compose up -d` exits.
+- **Milestone 8** (evals: golden questions, scorers, judge, runner, report): done. `shared/evals/
+  {golden_questions.yaml,golden_questions,scorers,judge,models,report,runner}.py`, `tests/
+  test_evals.py`. `make eval BACKEND=... PROVIDER=... QUESTIONS=... REPEATS=...` runs
+  `shared.evals.runner`, writing `runs/<timestamp>_<backend>_<provider>/{traces.jsonl,scores.csv,
+  report.md}`. Live-smoke-tested end to end (`naive_bigquery x gemini`, single question, real
+  BigQuery + Gemini + the Claude judge) -- this surfaced and fixed three real bugs the milestone
+  exists to catch, none of them eval-code bugs:
+  - **The system prompt's "today's date" was genuinely ambiguous.** It stated `benchmark_date`
+    (2026-08-31, the *last day of* August) as "today," and Gemini reasonably resolved "last month"
+    to July, not August -- disagreeing with every `truth.py` "last_month"/"last_quarter"/etc.,
+    which all mean August. Fixed in `shared/agent/prompts.py`: the prompt now names the completed
+    month explicitly ("The most recently completed calendar month is August 2026...") instead of
+    relying on the model to infer it from a boundary date. This is a Milestone 6 prompt fix,
+    found only because Milestone 8 finally asked date-scoped questions for real.
+  - **The judge's `max_tokens=300` truncated `claude-opus-5`'s response mid-JSON-string.**
+    claude-opus-5 thinks by default (adaptive thinking, even with no `thinking` param set) and
+    300 tokens wasn't enough for thinking + the verdict. Fixed in `shared/evals/judge.py`:
+    `max_tokens=1024` and `output_config={"effort": "low"}` (grading doesn't need much reasoning).
+  - **A real Milestone 3 bug in P4's order-date generation, found by the eval smoke test, not by
+    `tests/test_world.py`.** `observe.py` drew each internal user's order dates uniformly between
+    their signup and the *fixed window end*, not a fixed period after signup -- since signups are
+    uniform across the window but the upper bound is fixed, the order date's marginal density
+    diverges as it approaches the window end (integrates to ~ln(window / (window - T))), piling
+    fake orders into the most recent months far more than the "small background noise" the plan
+    intended (683 extra observed non-cancelled orders in August 2026 alone, before the fix).
+    `tests/test_world.py::test_p4_internal_users_move_the_observed_metrics` didn't catch it
+    because it only checks the AOV/repeat-rate delta, not the temporal distribution. Fixed by
+    bounding every order to `repeat_within_days` (90) after signup, matching what "test accounts
+    used briefly" was supposed to mean; `config/settings.yaml`'s comment on that field updated to
+    match. **Required regenerating `data/observed` and reloading the whole BigQuery pipeline**
+    (`bq-load` -> `bq-build` -> `bq-test`, all 16 assertions still pass) and rerunning `cube-test`
+    (all 22 checks still pass) -- `data/truth` is untouched (it's built from `data/true`, which
+    P4 never touches). Cube's `is_internal` exclusion was never affected by this bug (confirmed by
+    `cube-test` passing both before and after the fix); only `naive_bigquery`, which structurally
+    can't exclude internal users, was.
+  - Confirmed live: Suits (-37%) and Jumpsuits & Rompers (-33%) rank ahead of Fashion Hoodies &
+    Sweatshirts (-14.3%) in Q11's raw month-over-month category decline, but both are tiny
+    categories (~20-40 items/month, vs Fashion Hoodies' ~350-400) where a small absolute change
+    produces a large swing -- Q11's rubric now names this explicitly as a second trap layered on
+    top of the Sweaters/Knitwear rename artifact, not just the single decliner CLAUDE.md's P2 note
+    originally implied.
+  - **P4-tagged numeric questions (Q01, Q04, Q05, Q07, Q14) don't let numeric tolerance gate
+    pass/fail.** `naive_bigquery` structurally cannot exclude P4's internal accounts, so those
+    questions' numbers are *expected* to run off-truth there (more so for a single recent month --
+    P4 users' orders now cluster within 90 days of their own signup, so recent months see a bigger
+    share) -- gating on a tight numeric tolerance would fail an agent for correctly reporting the
+    polluted number and flagging why, exactly the behavior those questions are designed to reward.
+    `ParaphraseResult.numeric_gates` (`shared/evals/models.py`) controls this per paraphrase, set
+    by the runner from `"P4" not in question.planted_problems()`; the numeric score is still
+    computed and shown in the report either way. Dollar metrics (Q02's net_revenue) don't need
+    this -- P4's orders are individually tiny ($0.01-$1.00), contributing <0.15% of August 2026's
+    net_revenue even though they're ~15% of its raw order count.
+  - `truth.py` gained three answers.json fields Milestone 3 didn't need: `window_totals.
+    session_conversion_rate`/`purchasing_customers`/`new_customers` (window-level, not summed from
+    `monthly_metrics` -- purchasing_customers isn't summable across months without double-counting
+    repeat customers, and session_conversion_rate needs summed converted_sessions/sessions, not an
+    average of monthly rates), `channel_monthly` (Q12/Q13 -- true per-channel signups/new_customers,
+    unaffected by P3's consent-loss nulls), and `margin_by_channel` (Q18 -- a channel-level rollup
+    of `net_margin_by_cohort`).
+  - `project1-gcp-cube/backend/` isn't a package (same hyphen reason as `bigquery/`); `runner.py`
+    loads `cube_backend.py` by file path, the same way `tests/conftest.py` does.
+- **Next:** Milestone 9 (the three required eval runs + `make compare`) per DEV_PLAN.md section 12.4.

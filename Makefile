@@ -2,6 +2,8 @@
 
 BACKEND ?= cube
 PROVIDER ?= gemini
+QUESTIONS ?= all
+REPEATS ?= 1
 
 todo = @echo "'$@' is not implemented yet (milestone $(1))." && exit 1
 
@@ -33,16 +35,16 @@ agent-smoke:
 	uv run python -m shared.agent.smoke_test
 
 cube-up:
-	$(call todo,7)
+	uv run python project1-gcp-cube/cube/up.py
 
 cube-test:
-	$(call todo,7)
+	uv run pytest tests/test_cube_contract.py tests/test_cube_layer_correctness.py
 
 eval:
-	$(call todo,8)
+	uv run python -m shared.evals.runner --backend $(BACKEND) --provider $(PROVIDER) --questions $(QUESTIONS) --repeats $(REPEATS)
 
 compare:
-	$(call todo,9)
+	uv run python -m shared.evals.compare
 
 test:
 	uv run pytest

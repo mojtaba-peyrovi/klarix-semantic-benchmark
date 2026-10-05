@@ -102,6 +102,7 @@ class Settings(BaseModel):
     gcp: GcpSettings
     models: ModelSettings
     planted_problems: PlantedProblems
+    cube_api_secret: str | None = None
 
 
 def load_settings(path: Path = SETTINGS_PATH) -> Settings:
@@ -112,4 +113,5 @@ def load_settings(path: Path = SETTINGS_PATH) -> Settings:
         "bq_location": os.getenv("BQ_LOCATION", "EU"),
         "vertex_location": os.getenv("VERTEX_LOCATION", "eu"),
     }
+    raw["cube_api_secret"] = os.getenv("CUBEJS_API_SECRET") or None
     return Settings.model_validate(raw)

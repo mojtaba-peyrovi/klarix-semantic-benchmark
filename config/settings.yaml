@@ -69,7 +69,7 @@ planted_problems:
     orders_per_user: [2, 6]
     items_per_order: [1, 3]
     sale_price_range: [0.01, 1.00]
-    repeat_within_days: 90 # each user's 2nd order lands inside the 90-day repeat window
+    repeat_within_days: 90 # every order lands within 90 days of signup (so the 2nd is inside the repeat window)
 
   # P5: high-return acquisition cohort (real signal, applied to the TRUE world before
   # P2-P4 are injected). Modeled effect: cohort return rate ~14.3% -> ~40%, against
