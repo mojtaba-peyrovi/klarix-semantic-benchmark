@@ -1,0 +1,24 @@
+# Grain: one row per calendar day (dim_date), plus the -1 unknown member. Pure join
+# target for the fact cubes' time dimensions -- nothing here is exposed to the agent
+# (public: false). order_items.yml and orders.yml each declare their own
+# order_created dimension by joining to this cube and reading {dates.date}; the
+# dataset name is hardcoded (config/settings.yaml's apparel_ecom_star -- Cube's YAML
+# models aren't run through the repo's {{placeholder}} SQL templating in render.py).
+cubes:
+  - name: dates
+    sql_table: apparel_ecom_star.dim_date
+    public: false
+
+    dimensions:
+      - name: date_key
+        sql: date_key
+        type: number
+        primary_key: true
+
+      - name: date
+        sql: "TIMESTAMP({CUBE}.date)"
+        type: time
+        description: >
+          Cast to TIMESTAMP -- Cube's dateRange filters compare a time dimension
+          against TIMESTAMP literals, which BigQuery won't implicitly compare against
+          a bare DATE column.

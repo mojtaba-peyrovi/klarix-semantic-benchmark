@@ -1,0 +1,139 @@
+# Grain: one row per order item (fct_order_items).
+#
+# P1 (gross vs net revenue) is handled by separate columns, same as the star schema:
+# net_sale_price/net_cost are already 0 for cancelled and returned items, so summing
+# them gives net_revenue/cogs directly; summing sale_price for non-cancelled items
+# gives gross_revenue. Every measure excludes is_internal = true (P4) by default.
+cubes:
+  - name: order_items
+    sql_table: apparel_ecom_star.fct_order_items
+    public: false
+
+    joins:
+      - name: products
+        relationship: many_to_one
+        sql: "{CUBE}.product_key = {products.product_key}"
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_key = {customers.customer_key}"
+      - name: dates
+        relationship: many_to_one
+        sql: "{CUBE}.created_date_key = {dates.date_key}"
+
+    dimensions:
+      - name: order_item_id
+        sql: order_item_id
+        type: number
+        primary_key: true
+
+      - name: item_status
+        sql: item_status
+        type: string
+        description: >
+          An order item's lifecycle status (Processing, Shipped, Complete, Cancelled,
+          Returned). Most metrics already filter on this; use it directly only when a
+          question is specifically about status mix.
+
+      - name: order_created
+        sql: "{dates.date}"
+        type: time
+        description: The order item's created_at, truncated to the requested grain.
+
+    measures:
+      - name: gross_revenue
+        type: sum
+        sql: "IF({CUBE}.is_cancelled, 0, {CUBE}.sale_price)"
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Sum of sale_price for order items that were not cancelled. Includes items
+          that were later returned -- gross_revenue does NOT subtract returns. If
+          someone asks for "revenue" without saying which, ask, or state which one you
+          used: gross counts a sale even if the customer sent it back; net_revenue
+          does not.
+
+      - name: returned_revenue
+        type: sum
+        sql: "IF({CUBE}.is_returned, {CUBE}.sale_price, 0)"
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Sum of sale_price for items with status Returned. A component of
+          net_revenue, rarely asked for on its own.
+
+      - name: net_revenue
+        type: sum
+        sql: net_sale_price
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: >
+          gross_revenue minus returned_revenue. This is the more defensible "revenue"
+          to report to leadership: what the business actually kept. Cancelled items
+          are excluded from both terms, so a cancellation never reduces net_revenue
+          (it was never counted in gross_revenue to begin with).
+
+      - name: cogs
+        type: sum
+        sql: net_cost
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Cost of goods sold: sum of products.cost for items that are neither
+          cancelled nor returned (the same item population as net_revenue).
+
+      - name: gross_margin
+        type: number
+        sql: "{net_revenue} - {cogs}"
+        description: net_revenue minus cogs.
+
+      - name: gross_margin_pct
+        type: number
+        sql: "SAFE_DIVIDE({gross_margin}, {net_revenue})"
+        description: gross_margin divided by net_revenue.
+
+      - name: items_sold
+        type: count
+        sql: order_item_id
+        filters:
+          - sql: "{CUBE}.is_cancelled = false"
+          - sql: "{customers.is_internal} = false"
+        description: Count of order items that are not cancelled (includes returned items).
+
+      - name: returned_items_count
+        type: count
+        sql: order_item_id
+        public: false
+        filters:
+          - sql: "{CUBE}.is_returned = true"
+          - sql: "{customers.is_internal} = false"
+
+      - name: return_rate
+        type: number
+        sql: "SAFE_DIVIDE({returned_items_count}, {items_sold})"
+        description: >
+          Returned items divided by items_sold -- item-based, not revenue-based. A
+          return rate computed on dollars instead of item counts will differ, since
+          returned items aren't a uniform price; say which one you mean if it matters.
+
+      - name: cancelled_items_count
+        type: count
+        sql: order_item_id
+        public: false
+        filters:
+          - sql: "{CUBE}.is_cancelled = true"
+          - sql: "{customers.is_internal} = false"
+
+      - name: all_items_count
+        type: count
+        sql: order_item_id
+        public: false
+        filters:
+          - sql: "{customers.is_internal} = false"
+
+      - name: cancellation_rate
+        type: number
+        sql: "SAFE_DIVIDE({cancelled_items_count}, {all_items_count})"
+        description: >
+          Cancelled items divided by ALL items (cancelled + non-cancelled). Unlike
+          most other metrics here, the denominator is not restricted to non-cancelled
+          items.

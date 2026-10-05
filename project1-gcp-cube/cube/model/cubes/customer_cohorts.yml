@@ -1,0 +1,41 @@
+# Grain: one row per customer (mart_customer_cohorts), excluding the -1 unknown
+# member (the mart itself filters it out). Backs repeat_purchase_rate_90d and is the
+# one place customer_cohort_month is exposed from, so the view has a single
+# unambiguous source for that dimension name (dim_customer carries the same column,
+# but isn't joined to it here -- see customers.yml). is_internal exclusion still
+# applies, same as every other measure in this model.
+cubes:
+  - name: customer_cohorts
+    sql_table: apparel_ecom_marts.mart_customer_cohorts
+    public: false
+
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_key = {customers.customer_key}"
+
+    dimensions:
+      - name: customer_key
+        sql: customer_key
+        type: number
+        primary_key: true
+
+      - name: customer_cohort_month
+        sql: "TIMESTAMP({CUBE}.customer_cohort_month)"
+        type: time
+        description: >
+          The calendar month of a customer's first-ever order (see new_customers).
+          Fixed at month grain -- it's a cohort label, not a queryable event time.
+
+    measures:
+      - name: repeat_purchase_rate_90d
+        type: avg
+        sql: "IF({CUBE}.repeat_within_90d, 1, 0)"
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Share of a first-order cohort (grouped by the month of each customer's
+          first order) that placed a second order within 90 days of the first.
+          Cohorts near the end of the available data are "immature" -- they haven't
+          had 90 days yet to repeat -- and should be flagged or excluded, not
+          reported as a low rate.

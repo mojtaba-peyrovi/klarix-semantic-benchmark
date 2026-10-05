@@ -1,0 +1,91 @@
+# Grain: one row per user (dim_customer), plus the -1 unknown member.
+#
+# is_internal is dim_customer's rule-based P4 fix (an internal email domain or a
+# test-name prefix); it's marked public: false because it's a filter mechanism, not
+# something the agent should query directly -- every governed measure on every cube
+# in this model excludes is_internal = true via a measure-level `filters` clause
+# referencing {customers.is_internal}, per DEV_PLAN section 10.2.
+#
+# customer_cohort_month lives on customer_cohorts.yml (the mart built for cohort
+# analysis), not here, so the view has exactly one place to resolve that dimension
+# name from. acquisition_channel is already "Unattributed" for a NULL traffic_source
+# (P3), not hidden.
+cubes:
+  - name: customers
+    sql_table: apparel_ecom_star.dim_customer
+    public: false
+
+    joins:
+      - name: dates
+        relationship: many_to_one
+        sql: "{CUBE}.created_date_key = {dates.date_key}"
+
+    dimensions:
+      - name: customer_key
+        sql: customer_key
+        type: number
+        primary_key: true
+
+      - name: is_internal
+        sql: is_internal
+        type: boolean
+        public: false
+        description: >
+          Rule-based flag for P4's injected internal/test accounts. Every governed
+          measure in this model already excludes is_internal = true by default --
+          this dimension exists to make that exclusion possible, not to be queried
+          directly.
+
+      - name: customer_country
+        sql: country
+        type: string
+        description: users.country.
+
+      - name: customer_gender
+        sql: gender
+        type: string
+        description: users.gender.
+
+      - name: customer_age_band
+        sql: age_band
+        type: string
+        description: A banded version of users.age (e.g. 18-24, 25-34, ...).
+
+      - name: acquisition_channel
+        sql: acquisition_channel
+        type: string
+        description: >
+          users.traffic_source, the channel a customer signed up through. A NULL
+          value is shown as "Unattributed" rather than dropped -- see
+          attribution_coverage_rate.
+
+      - name: user_created
+        sql: "{dates.date}"
+        type: time
+        description: The user's signup date (users.created_at), truncated to the requested grain.
+
+    measures:
+      - name: signups
+        type: count
+        sql: user_id
+        filters:
+          - sql: "{CUBE}.is_internal = false"
+        description: Count of users created (account creation, not first purchase) in the period.
+
+      - name: known_channel_count
+        type: count
+        sql: user_id
+        public: false
+        filters:
+          - sql: "{CUBE}.is_internal = false"
+          - sql: "{CUBE}.acquisition_channel != 'Unattributed'"
+
+      - name: attribution_coverage_rate
+        type: number
+        sql: "SAFE_DIVIDE({known_channel_count}, {signups})"
+        description: >
+          Share of users with a known, non-null traffic_source. Governed-stack only --
+          it exists to expose where acquisition-channel data is missing, not to
+          explain the missing values away. A drop in this metric means "we stopped
+          knowing," not "the channel declined." Not recoverable for users affected by
+          P3 (consent-tracking loss) -- that's by design, not a bug in this cube.

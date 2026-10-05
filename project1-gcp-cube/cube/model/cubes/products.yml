@@ -1,0 +1,44 @@
+# Grain: one row per product_id (dim_product), plus the -1 unknown member. Pure
+# dimension cube -- no measures -- joined from order_items for category, brand,
+# department, and distribution_center. category_family is exposed here rather than
+# recomputed anywhere else: it's dim_product's governed fix for P2 (the category
+# rename), read straight off the map_category_family table dim_product already joins.
+cubes:
+  - name: products
+    sql_table: apparel_ecom_star.dim_product
+    public: false
+
+    dimensions:
+      - name: product_key
+        sql: product_key
+        type: number
+        primary_key: true
+
+      - name: category
+        sql: category
+        type: string
+        description: >
+          products.category, as entered in the source system. Not stable over time --
+          see category_family for a definition that survives a rename.
+
+      - name: category_family
+        sql: category_family
+        type: string
+        description: >
+          A stable grouping that maps a renamed category's old and new names to one
+          lineage. Prefer this over category for any trend that spans a rename.
+
+      - name: brand
+        sql: brand
+        type: string
+        description: products.brand.
+
+      - name: department
+        sql: department
+        type: string
+        description: products.department (Men or Women).
+
+      - name: distribution_center
+        sql: distribution_center_name
+        type: string
+        description: The fulfilling distribution_centers.name for an order item.

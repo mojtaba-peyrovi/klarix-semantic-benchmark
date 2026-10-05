@@ -1,0 +1,54 @@
+# Grain: one row per session_id (fct_sessions). "Unattributed" (session_traffic_source)
+# makes P3 visible rather than hiding it -- same NULL-handling convention as
+# acquisition_channel on dim_customer. Sessions join to customers only so the
+# is_internal exclusion is consistent with every other measure in this model, even
+# though P4's injected users are synthetic orders, not synthetic web sessions.
+cubes:
+  - name: sessions
+    sql_table: apparel_ecom_star.fct_sessions
+    public: false
+
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_key = {customers.customer_key}"
+
+    dimensions:
+      - name: session_key
+        sql: session_key
+        type: number
+        primary_key: true
+
+      - name: session_traffic_source
+        sql: session_traffic_source
+        type: string
+        description: >
+          events.traffic_source for a session. Uses a different vocabulary than
+          acquisition_channel (e.g. "Adwords" here vs "Search" there) because it
+          comes from a separate tracking system; the two are not directly comparable.
+
+      - name: session_started
+        sql: session_start_ts
+        type: time
+        description: A session's first event timestamp, truncated to the requested grain.
+
+    measures:
+      - name: sessions
+        type: count
+        sql: session_key
+        filters:
+          - sql: "{customers.is_internal} = false"
+        description: Count of distinct session_id values in the events log, in the period.
+
+      - name: converted_sessions
+        type: count
+        sql: session_key
+        public: false
+        filters:
+          - sql: "{CUBE}.has_purchase = true"
+          - sql: "{customers.is_internal} = false"
+
+      - name: session_conversion_rate
+        type: number
+        sql: "SAFE_DIVIDE({converted_sessions}, {sessions})"
+        description: Sessions containing a purchase event, divided by all sessions, in the period.

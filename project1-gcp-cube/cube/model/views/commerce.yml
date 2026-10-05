@@ -1,0 +1,78 @@
+# The one agent-facing view (DEV_PLAN section 10.2). Every underlying cube is
+# public: false; every member name below except `orders_created` is exactly a
+# shared/semantic/catalog.yaml name -- the contract test
+# (tests/test_cube_contract.py) checks that this view's meta and the catalog agree
+# exactly (modulo that one documented exception), in both directions.
+# attribution_coverage_rate is intentionally the only metric NOT offered by
+# naive_bigquery (Milestone 6) -- it exists only here.
+#
+# `orders_created` is `orders.order_created` under an internal-only alias, found
+# live: Cube's join-path resolver refuses to combine measures from two different
+# fact cubes (order_items and orders) even through a single shared dimension like
+# `customers` ("Can't find join path to join 'order_items', 'dates', 'orders',
+# 'customers'") -- it isn't a fan-out-safety feature for that case, just a hard
+# limit. Exposing order_items.order_created and orders.order_created under the
+# SAME view member name would force that combination on every orders-family query
+# (orders/aov/purchasing_customers/new_customers), since the shared name is a fixed
+# binding to one physical cube. cube_backend.py routes the catalog's single
+# "order_created" to whichever of these two Cube members actually matches the
+# requested metrics' cube, so the agent only ever sees one name.
+views:
+  - name: commerce
+    description: >
+      theLook apparel commerce metrics: revenue, orders, returns, customers,
+      sessions, and cohorts, governed against apparel_ecom_star / apparel_ecom_marts.
+
+    cubes:
+      - join_path: order_items
+        includes:
+          - order_created
+          - item_status
+          - gross_revenue
+          - returned_revenue
+          - net_revenue
+          - cogs
+          - gross_margin
+          - gross_margin_pct
+          - items_sold
+          - return_rate
+          - cancellation_rate
+
+      - join_path: products
+        includes:
+          - category
+          - category_family
+          - brand
+          - department
+          - distribution_center
+
+      - join_path: customers
+        includes:
+          - customer_country
+          - customer_gender
+          - customer_age_band
+          - acquisition_channel
+          - user_created
+          - signups
+          - attribution_coverage_rate
+
+      - join_path: orders
+        includes:
+          - orders
+          - aov
+          - purchasing_customers
+          - new_customers
+          - name: order_created
+            alias: orders_created
+
+      - join_path: sessions
+        includes:
+          - session_started
+          - session_traffic_source
+          - sessions
+          - session_conversion_rate
+
+      - join_path: customer_cohorts
+        includes:
+          - customer_cohort_month
+          - repeat_purchase_rate_90d

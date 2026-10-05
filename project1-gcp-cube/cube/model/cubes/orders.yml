@@ -1,0 +1,85 @@
+# Grain: one row per order (fct_orders), including fully-cancelled orders at
+# gross_revenue = 0. orders/aov/purchasing_customers/new_customers all live here
+# rather than on order_items, because they're order-grain questions (fct_orders
+# already carries its own gross_revenue/net_revenue/is_first_order per order --
+# summing those doesn't fan out the way summing order-item rows for an order-grain
+# count would). Every measure excludes is_internal = true (P4) by default.
+#
+# order_created is deliberately NOT joined through the shared `dates` cube the way
+# order_items.order_created is: order_items and orders both already join to
+# `customers`, and a second shared join target (dates) on top of that gives Cube two
+# independent paths between them -- a "diamond" Cube's join-path resolver can't
+# disambiguate ("Can't find join path to join 'order_items', 'dates', 'orders',
+# 'customers'", found live). Deriving the date straight from order_date_key here
+# keeps `customers` the only thing order_items and orders have in common.
+cubes:
+  - name: orders
+    sql_table: apparel_ecom_star.fct_orders
+    public: false
+
+    joins:
+      - name: customers
+        relationship: many_to_one
+        sql: "{CUBE}.customer_key = {customers.customer_key}"
+
+    dimensions:
+      - name: order_id
+        sql: order_id
+        type: number
+        primary_key: true
+
+      - name: is_first_order
+        sql: is_first_order
+        type: boolean
+        public: false
+
+      - name: order_created
+        sql: "SAFE.PARSE_TIMESTAMP('%Y%m%d', CAST({CUBE}.order_date_key AS STRING))"
+        type: time
+        description: The order item's created_at, truncated to the requested grain.
+
+    measures:
+      - name: orders
+        type: count
+        sql: order_id
+        filters:
+          - sql: "{CUBE}.gross_revenue > 0"
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Count of distinct orders with at least one non-cancelled item. An order
+          that was fully cancelled does not count here -- nothing was actually sold.
+
+      - name: order_net_revenue
+        type: sum
+        sql: net_revenue
+        public: false
+        filters:
+          - sql: "{CUBE}.gross_revenue > 0"
+          - sql: "{customers.is_internal} = false"
+
+      - name: aov
+        type: number
+        sql: "SAFE_DIVIDE({order_net_revenue}, {orders})"
+        description: >
+          Average order value: net_revenue / orders. This divides by the orders
+          metric's own definition (has a non-cancelled item), not a raw order count.
+
+      - name: purchasing_customers
+        type: count_distinct
+        sql: customer_key
+        filters:
+          - sql: "{CUBE}.gross_revenue > 0"
+          - sql: "{customers.is_internal} = false"
+        description: Count of distinct users with at least one order (see orders) in the period.
+
+      - name: new_customers
+        type: count
+        sql: order_id
+        filters:
+          - sql: "{CUBE}.is_first_order = true"
+          - sql: "{customers.is_internal} = false"
+        description: >
+          Count of users whose first-ever order (by the orders definition, using each
+          customer's full order history, not just the queried period) falls in the
+          period. A returning customer's order in the period does not make them "new"
+          even if it's their first order in this particular date range.
