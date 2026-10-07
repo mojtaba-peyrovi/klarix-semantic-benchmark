@@ -82,13 +82,19 @@ def _all_paraphrases(results: list[QuestionResult]) -> list[ParaphraseResult]:
 
 
 def build_report_md(
-    results: list[QuestionResult], backend: str, provider: str, model: str, timestamp: str
+    results: list[QuestionResult],
+    backend: str,
+    provider: str,
+    model: str,
+    timestamp: str,
+    max_tool_calls: int = 8,
 ) -> str:
     all_prs = _all_paraphrases(results)
     lines: list[str] = [
         f"# Eval report: {backend} x {provider} ({model})",
         "",
-        f"Run: {timestamp}  ·  {len(results)} questions  ·  {len(all_prs)} paraphrase runs",
+        f"Run: {timestamp}  ·  {len(results)} questions  ·  {len(all_prs)} paraphrase runs"
+        f"  ·  tool budget: {max_tool_calls}",
         "",
         "## Pass rate by category",
         "",

@@ -20,12 +20,14 @@ from datetime import datetime
 import typer
 from rich.console import Console
 
-from shared.agent.loop import run_agent
+from shared.agent.loop import MAX_TOOL_CALLS, run_agent
 from shared.agent.providers.anthropic_provider import AnthropicProvider
 from shared.agent.providers.base import Provider
 from shared.agent.providers.gemini_vertex import GeminiVertexProvider
 from shared.backends.base import Backend
 from shared.backends.naive_bigquery import NaiveBigQueryBackend
+from shared.backends.naive_duckdb import NaiveDuckDbBackend
+from shared.evals.failures import write_failures_md
 from shared.evals.golden_questions import GoldenQuestion, load_golden_questions
 from shared.evals.judge import judge
 from shared.evals.models import ParaphraseResult, QuestionResult
@@ -59,11 +61,24 @@ def _load_cube_backend(settings: Settings) -> Backend:
     return module.CubeBackend(settings)
 
 
+def _load_metricflow_backend(settings: Settings) -> Backend:
+    path = REPO_ROOT / "project2-dbt-metricflow" / "backend" / "metricflow_backend.py"
+    spec = importlib.util.spec_from_file_location("metricflow_backend", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["metricflow_backend"] = module  # its @dataclass needs the module registered
+    spec.loader.exec_module(module)
+    return module.MetricFlowBackend(settings)
+
+
 def build_backend(name: str, settings: Settings) -> Backend:
     if name == "naive_bigquery":
         return NaiveBigQueryBackend(settings)
+    if name == "naive_duckdb":
+        return NaiveDuckDbBackend(settings)
     if name == "cube":
         return _load_cube_backend(settings)
+    if name == "metricflow":
+        return _load_metricflow_backend(settings)
     raise ValueError(f"unknown backend {name!r}")
 
 
@@ -86,6 +101,7 @@ def run_question(
     settings: Settings,
     answers: dict,
     repeats: int,
+    max_tool_calls: int = MAX_TOOL_CALLS,
 ) -> QuestionResult:
     truth = resolve_truth_ref(answers, question.expected.truth_ref)
     allow_assumptions = question.id in _EXPLICIT_ASSUMPTIONS_OK
@@ -94,7 +110,12 @@ def run_question(
     for idx, paraphrase in enumerate(question.paraphrases):
         for _ in range(repeats):
             run = run_agent(
-                paraphrase, provider, backend, settings.benchmark.end_date, models=settings.models
+                paraphrase,
+                provider,
+                backend,
+                settings.benchmark.end_date,
+                models=settings.models,
+                max_tool_calls=max_tool_calls,
             )
 
             numeric_score = None
@@ -149,10 +170,13 @@ def run_question(
 
 
 def main(
-    backend: str = typer.Option(..., help="naive_bigquery | cube"),
+    backend: str = typer.Option(..., help="naive_bigquery | cube | naive_duckdb | metricflow"),
     provider: str = typer.Option(..., help="gemini | anthropic"),
     questions: str = typer.Option("all", help="'all' or a comma-separated list of ids (Q01,Q02)"),
     repeats: int = typer.Option(1, help="Times to repeat each paraphrase."),
+    max_tool_calls: int = typer.Option(
+        MAX_TOOL_CALLS, help="Tool-call budget per question (required runs use the default, 8)."
+    ),
 ) -> None:
     settings = load_settings()
     all_questions = load_golden_questions()
@@ -182,7 +206,9 @@ def main(
     with traces_path.open("w", encoding="utf-8") as traces_file:
         for question in all_questions:
             console.rule(f"{question.id} ({question.category})")
-            qr = run_question(question, provider_obj, backend_obj, settings, answers, repeats)
+            qr = run_question(
+                question, provider_obj, backend_obj, settings, answers, repeats, max_tool_calls
+            )
             results.append(qr)
             for pr in qr.paraphrase_results:
                 traces_file.write(pr.agent_run.model_dump_json() + "\n")
@@ -191,11 +217,13 @@ def main(
     (out_dir / "scores.csv").write_text(write_csv(csv_rows), encoding="utf-8")
 
     model = settings.models.gemini if provider == "gemini" else settings.models.anthropic_agent
-    report_md = build_report_md(results, backend, provider, model, timestamp)
+    report_md = build_report_md(results, backend, provider, model, timestamp, max_tool_calls)
     (out_dir / "report.md").write_text(report_md, encoding="utf-8")
+    write_failures_md(out_dir)  # first-pass failure causes, for a human to review
 
     console.print(
-        f"[green]Wrote {out_dir.relative_to(REPO_ROOT)}/{{traces.jsonl,scores.csv,report.md}}[/]"
+        f"[green]Wrote {out_dir.relative_to(REPO_ROOT)}/"
+        "{traces.jsonl,scores.csv,report.md,failures.md}[/]"
     )
     overall_pass = sum(qr.passed for qr in results)
     console.print(f"Overall: {overall_pass}/{len(results)} questions passed")

@@ -43,6 +43,8 @@ class AgentRun(BaseModel):
     output_tokens: int
     estimated_cost_usd: float | None  # None if the model has no price in settings.yaml
     latency_ms: int
+    # The tool-call budget this run had. Default 8 = every run before this field existed.
+    max_tool_calls: int = MAX_TOOL_CALLS
 
 
 def _force_final_answer_output(turn: ProviderTurn) -> dict[str, Any]:
@@ -52,7 +54,9 @@ def _force_final_answer_output(turn: ProviderTurn) -> dict[str, Any]:
         "answer": turn.text or "",
         "key_numbers": [],
         "assumptions": [],
-        "caveats": ["forced after the tool-call budget ran out without a clean final_answer"],
+        "caveats": [
+            "forced after the tool-call budget ran out without a clean final_answer",
+        ],
         "confidence": "low",
     }
 
@@ -73,12 +77,16 @@ def run_agent(
     benchmark_date: date,
     models: ModelSettings | None = None,
     on_turn: Callable[[ToolCallRecord], None] | None = None,
+    max_tool_calls: int = MAX_TOOL_CALLS,
 ) -> AgentRun:
     """`on_turn`, if given, is called right after each tool call is recorded --
     lets a caller print progress live instead of waiting in silence for the whole
-    run (a single provider round-trip can take 30-90s)."""
+    run (a single provider round-trip can take 30-90s).
+
+    `max_tool_calls` is the budget before the agent must give a final answer; the default
+    reproduces every earlier run exactly (the system prompt is byte-identical at 8)."""
     start = time.monotonic()
-    prompt = system_prompt(benchmark_date, MAX_TOOL_CALLS)
+    prompt = system_prompt(benchmark_date, max_tool_calls)
     provider.start(prompt, TOOL_SPECS)
 
     turns: list[ToolCallRecord] = []
@@ -97,7 +105,7 @@ def run_agent(
     input_tokens += turn.input_tokens
     output_tokens += turn.output_tokens
 
-    while terminal_tool is None and calls_made < MAX_TOOL_CALLS and turn.tool_calls:
+    while terminal_tool is None and calls_made < max_tool_calls and turn.tool_calls:
         terminal_call = next((c for c in turn.tool_calls if c.name in TERMINAL_TOOLS), None)
         if terminal_call is not None:
             terminal_tool = terminal_call.name
@@ -119,7 +127,7 @@ def run_agent(
         input_tokens += turn.input_tokens
         output_tokens += turn.output_tokens
 
-        if calls_made >= MAX_TOOL_CALLS:
+        if calls_made >= max_tool_calls:
             break
 
     # The while loop above can exit with turn.tool_calls still populated only when
@@ -141,7 +149,9 @@ def run_agent(
                 "answer": turn.text or "",
                 "key_numbers": [],
                 "assumptions": [],
-                "caveats": ["forced after the tool-call budget ran out without a clean final_answer"],
+                "caveats": [
+            "forced after the tool-call budget ran out without a clean final_answer",
+        ],
                 "confidence": "low",
             }
 
@@ -169,4 +179,5 @@ def run_agent(
         if models
         else None,
         latency_ms=int((time.monotonic() - start) * 1000),
+        max_tool_calls=max_tool_calls,
     )

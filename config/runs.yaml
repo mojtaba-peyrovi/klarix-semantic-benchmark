@@ -1,0 +1,24 @@
+# Pinned eval runs: which directory under runs/ is THE published run for each comparison.
+#
+# `make compare` / `make compare-cross` read only these pins. They never fall back to "the
+# latest run for this backend x provider": that is wrong the moment a newer, unpublished
+# run exists (runs/ already holds several later naive_bigquery x gemini runs that are not
+# the published baseline). A missing pin or a missing directory is a loud error.
+#
+# Values are directory names under runs/ (they are not versioned; runs/ is gitignored).
+# An unset (null) pin means "that run has not been executed yet"; fill it in after
+# `make eval BACKEND=... PROVIDER=...` produced the run you want to publish.
+
+project1:
+  # The three runs listed in the current runs/COMPARISON.md (Project 1's case study).
+  naive_bigquery_gemini: 20260930_114339_naive_bigquery_gemini # baseline
+  cube_gemini: 20260930_133906_cube_gemini # headline
+  cube_anthropic: 20260930_144420_cube_anthropic # control
+
+project2:
+  # Required runs (tool budget 8, for comparability with Project 1).
+  naive_duckdb_anthropic: null # baseline: Claude on raw tables
+  metricflow_anthropic: null # headline
+  metricflow_gemini: null # control: same model as Project 1's headline
+  # Sensitivity run (--max-tool-calls 12), reported separately, never mixed into the headline.
+  metricflow_anthropic_budget12: null
