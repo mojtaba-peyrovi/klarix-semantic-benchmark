@@ -24,3 +24,9 @@ build/
 .idea/
 .DS_Store
 .claude/
+
+# dbt build artifacts (Project 2)
+project2-dbt-metricflow/dbt/target/
+project2-dbt-metricflow/dbt/logs/
+project2-dbt-metricflow/dbt/dbt_packages/
+logs/

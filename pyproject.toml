@@ -24,6 +24,15 @@ dependencies = [
 
 [dependency-groups]
 dev = ["pytest", "ruff"]
+project2 = [
+    "dbt-core==1.12.5",
+    "dbt-duckdb==1.11.0",
+    "dbt-metricflow==0.15.0",
+    "metricflow==0.213.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "project2"]
 
 [build-system]
 requires = ["hatchling"]
