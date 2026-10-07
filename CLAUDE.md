@@ -137,7 +137,7 @@ through the shared milestones in lockstep.
     calls counts as 3 toward the budget, matching the plan's "max 8 tool calls" literally.
 - **Milestone 7** (Cube Core): done. `project1-gcp-cube/cube/{docker-compose.yml,up.py,
   model/{cubes,views}/*.yml}`, `project1-gcp-cube/backend/cube_backend.py`, `tests/{conftest,
-  test_cube_contract,test_cube_layer_correctness}.py`. `make cube-up` brings up one
+  test_cube_contract,test_cube_layer_correctness}.py` (since moved to `tests/layer/`, see P2-4). `make cube-up` brings up one
   `cubejs/cube:v1.7.46` container (dev mode, embedded Cube Store, no separate cubestore service);
   `make cube-test` runs both tests. Confirmed live against BigQuery: the contract test passes
   (the `commerce` view's measures/dimensions equal `catalog.yaml` exactly, modulo one documented
@@ -239,4 +239,266 @@ through the shared milestones in lockstep.
     of `net_margin_by_cohort`).
   - `project1-gcp-cube/backend/` isn't a package (same hyphen reason as `bigquery/`); `runner.py`
     loads `cube_backend.py` by file path, the same way `tests/conftest.py` does.
-- **Next:** Milestone 9 (the three required eval runs + `make compare`) per DEV_PLAN.md section 12.4.
+## Project 2 decisions
+
+Spec: [project2-dbt-metricflow/DEV_PLAN_PROJECT2.md](project2-dbt-metricflow/DEV_PLAN_PROJECT2.md)
+(the plan asks for `docs/DEV_PLAN_PROJECT2.md`; it lives in the project folder instead). The
+"Project 1 tag" the plan mentions doesn't exist -- create one before P2-2 so the frozen-path diff
+in the plan's section 13 has something to compare against.
+
+**P2-1 spike (checked 2026-10-06; environment decision confirmed by the user: `project2` dependency group in the main env, pinned exactly, `[tool.uv] default-groups` includes it; git tag `project1-final` marks the frozen Project 1 state):**
+- **Versions that resolve together on Python 3.12:** `dbt-core 1.12.5`, `dbt-duckdb 1.11.0`,
+  `dbt-metricflow 0.15.0` (pulls `metricflow 0.213.0`), `duckdb 1.5.5` (unchanged). All Apache-2.0
+  per the installed package metadata (re-check the upstream repo before the README states it).
+- **One transitive downgrade:** `dbt-core` requires `protobuf>=6,<7`, so `protobuf` goes 7.36.2 ->
+  6.33.6. Nothing is removed and nothing else changes. `google-cloud-bigquery`, `google-genai` and
+  `anthropic` all import fine on 6.33.6 (checked in a scratch env). The plan's "without
+  downgrading anything" strictly fails on this one package; recommendation is still a `project2`
+  dependency group in the main env (a separate venv would force a subprocess backend).
+- **MetricFlow Python API** (`metricflow.engine.metricflow_engine.MetricFlowEngine`) works, but its
+  own docstring says the class is not a stable API ("TODO: provide a more stable API layer"). Pin
+  the version exactly. Proven on a toy model: `engine.explain(MetricFlowQueryRequest.create(...))
+  .sql_statement.sql` compiles without executing; `engine.list_metrics()` / `list_dimensions(
+  [metric])` give names, types, descriptions; the compiled SQL runs on our own connection.
+- **Execution path:** MetricFlow compiles, our backend executes on its own read-only DuckDB
+  connection. The engine needs a `SqlClient` (sql_engine_type, sql_plan_renderer, query, execute,
+  dry_run, close, render_bind_parameter_key); the CLI's one wraps a dbt adapter (read-write), so
+  write a ~15-line read-only one. Manifest: `parse_manifest_from_dbt_generated_manifest` (from
+  `metricflow_semantics.model.dbt_manifest_parser`) on `target/semantic_manifest.json`, which
+  `dbt parse`/`build` writes.
+- **File locking (Windows, tested with two processes):** one writer XOR many read-only readers.
+  A read-only open while dbt holds the file fails with `IOException ... being used by another
+  process`; a dbt write while a reader holds it fails the same way. The backend must catch that
+  and say "run the backend after dbt build finishes".
+- **Semantic YAML spec:** dbt-core 1.12.5 supports the new inline "v2" spec (a `semantic_model:`
+  block on the model, `entity:`/`dimension:` on columns, simple metrics with `agg` + `expr`; there
+  are no separate `measures`). **The docs page puts `agg_time_dimension` inside `semantic_model:`;
+  the installed version rejects that** -- it must be a sibling key at the model level
+  (`agg_time_dimension: x` next to `semantic_model:`). Found live, not from the docs.
+- **A time spine model is mandatory** (`time_spine: standard_granularity_column:` on a model with a
+  DAY column) or `dbt parse` fails; `dim_date` is the natural candidate.
+- **dbt-duckdb's relative `path:` resolves against the current directory, not the profiles dir**
+  -- `run_dbt.py` must pass an absolute path.
+- **Windows path length:** a scratch venv under the Claude scratchpad (path > 260 chars) made
+  Python fail to import `anthropic` ("No module named ...") even though the file existed. Not a
+  dependency problem; keep Project 2 paths short.
+
+**P2-2 (dbt project): done, awaiting review.** `project2-dbt-metricflow/{run_dbt.py,dbt/,parity/}`,
+`tests/test_agent_text_hygiene.py`, `make p2-{setup,build,test,docs,parity}`. `make p2-build` runs 87
+dbt nodes (1 seed, 7 staging views, 9 tables, 70 tests) green from an empty `data/warehouse/
+apparel_ecom.duckdb` in ~5 s of dbt time; two fresh builds give identical row counts and
+per-table content fingerprints. `make p2-parity` against Project 1's BigQuery star: 44 aggregates
+(row counts, measure sums, date-key sums, flag counts), 0 mismatches.
+- Findings from the port:
+  - Parquet timestamps are TIMESTAMPTZ; `DATE()` on those follows the session time zone in DuckDB
+    (BigQuery is always UTC). Staging casts via `utc_ts()` to a naive UTC TIMESTAMP, and the
+    profile also pins `TimeZone: UTC`.
+  - dbt prefixes custom schemas with the target schema by default; a `generate_schema_name`
+    override makes them plain `staging`/`star`/`marts`, mirroring Project 1's datasets.
+  - Surrogate keys: `md5_number_lower` shifted by 2^63 into signed BIGINT (not `hash()`).
+  - Two deliberate deviations from the BigQuery SQL, both for determinism (documented in the model
+    SQL headers): `fct_orders` ranks with an `order_id` tie-breaker (91 users have two orders at
+    one timestamp), and `fct_sessions` uses MIN instead of ANY_VALUE (every session has exactly one
+    user and one traffic source, so the values are identical).
+  - Relationship tests need the `arguments:` form under dbt 1.12 (no deprecation warnings).
+  - `dbt_project.yml` warns "paths ... do not apply to any resources" until `models/semantic/`
+    gets files in P2-3.
+- **Hygiene test result (the finding the plan asks to report):** exactly one Cube description
+  reaches the agent with a planted-problem label: the `attribution_coverage_rate` measure in
+  `project1-gcp-cube/cube/model/cubes/customers.yml` says "P3 (consent-tracking loss)".
+  `naive_bigquery`'s 31 descriptions are clean. The Cube case is a strict `xfail`. **Lesson:** a
+  strict xfail also swallows a crashing collector (the first version crashed on aliased `includes`
+  entries and still "xfailed"); the test now asserts what it collects, and was checked by listing
+  the actual hits.
+- Lint: `ruff check` has one pre-existing E501 in `shared/agent/loop.py:144` (Project 1 code, not
+  touched) and four Project 1 files fail `ruff format --check`; neither was changed.
+
+**P2-3 (MetricFlow semantic models): done, awaiting review.** `project2-dbt-metricflow/dbt/models/
+semantic/{_semantic.yml,sem_*.sql}`, `run_mf.py`, `make p2-mf-validate`. `mf validate-configs`: 0
+errors, 0 future-errors, 0 warnings, including all six warehouse-level validations. 93 dbt nodes green.
+- **Design:** six semantic models, each a thin `sem_*` view in `models/semantic/` (a dbt model can
+  carry only one YAML patch, and the star tables already have theirs). The views exist because
+  MetricFlow needs a real time column inside the model while the star schema keeps only date keys:
+  `sem_order_items`, `sem_orders`, `sem_customers` join `dim_date`; `sem_sessions` casts the start
+  timestamp to a date; `sem_products` and `sem_customer_cohorts` are pass-throughs. Star-schema
+  columns are unchanged, so the BigQuery parity result still holds.
+- **Entities:** `order_item`, `order`, `customer`, `product`, `session` are primary in their own
+  model. `sem_customer_cohorts` has primary entity `customer_cohort` plus a *foreign* `customer`
+  entity (declared via `derived_semantics`, since a v2 column carries only one entity), so
+  `customer_cohort_month` has exactly one source and the internal-account filter reaches the same
+  `customer__is_internal` as every other metric. `sem_customers` deliberately omits
+  `customer_cohort_month`.
+- **Spec notes (v2, dbt-core 1.12.5):** metrics sit under the model that owns them; there is no
+  top-level `meta` on a metric (use `config: {meta: ...}`) and `hidden: true` marks private metrics.
+  Helper metrics carry both `hidden: true` and `meta.agent_facing: false`; catalog metrics carry
+  `meta.unit`. Descriptions/units were generated once from `catalog.yaml` and are verbatim (checked:
+  18/18 metrics, 15/15 dimensions equal modulo whitespace). Catalog has 15 dimensions, not the 14
+  stated earlier in this file.
+- **Internal exclusion** is a metric-level `filter` on every simple metric (ratio/derived inherit it
+  through their inputs). `is_internal` is a hidden `sem_customers` dimension (the only non-catalog
+  dimension); the P2-4 backend must not list it.
+- **`signups`/`known_channel_signups` exclude the -1 unknown member** (Cube's count did not).
+- **MetricFlow advantage over Cube, confirmed live:** metrics from different fact models
+  (`orders` on items, `new_customers` on orders) combine in one query via `metric_time`; Cube's
+  fact-to-fact join limit does not exist here. `order_created` is defined on two models
+  (`sem_order_items`, `sem_orders`), which is harmless in MetricFlow.
+- **Open points for P2-4:** (1) `repeat_purchase_rate_90d` averages `repeat_within_90d` over every
+  customer in the mart, never-buyers included (same as Cube): ungrouped it is diluted; grouped by
+  cohort month, never-buyers fall into a NULL-month group (rate 0). The plan and Cube both define it
+  this way, so it is unchanged; raise if the layer test says otherwise. (2) The catalog's default
+  time dimension for `repeat_purchase_rate_90d` is `user_created`, but its MetricFlow
+  `agg_time_dimension` is `customer_cohort_month` (as the plan specifies, as in Cube): the backend's
+  time routing must handle that.
+- **Windows:** `mf` crashes through a pipe under cp1252 (its spinners print emoji; the error
+  surfaces as a misleading "cannot use a string pattern on a bytes-like object" while parsing the
+  manifest, which actually parses fine). `run_mf.py` runs it with `PYTHONUTF8=1`.
+
+**P2-4 (MetricFlow backend + shared layer tests): done, awaiting review.**
+`project2-dbt-metricflow/backend/metricflow_backend.py`, `tests/layer/{conftest,test_contract,
+test_correctness}.py`, `tests/test_metricflow_{contract,backend}.py`, `make p2-layer-test`. Full suite
+with both backends live: 133 passed, 1 expected xfail, 0 skipped. `make cube-test` (now
+`pytest tests/layer -k cube`): 22 passed, the same 22 checks as before the refactor.
+- **Backend shape:** `plan()` (pure: routing, filter translation, escaping) -> `compile()` (MetricFlow
+  `explain`) -> `run()` (our own read-only DuckDB connection, columns renamed to catalog names,
+  dates as ISO strings, decimals as floats). A connection is opened per query and closed again, so
+  `dbt build` is never blocked between queries; a missing or locked warehouse raises a readable
+  RuntimeError ("make p2-build" / "run the backend after it finishes").
+  `list_metrics`/`list_dimensions` read the semantic manifest (descriptions, units, grains), not
+  `catalog.yaml`; grains are intersected with the catalog's (the cohort month stays month-only).
+- **Time routing (the three cases of plan 7.5, tested):** all metrics' own time dimension ==
+  `time_dimension` -> `metric_time` (month grain for cohort metrics); otherwise the named dimension
+  via its entity link with a warning saying what the range filtered on; if MetricFlow cannot
+  resolve it, a warning naming each metric's own time dimension (never an exception).
+  `order_created` has a documented alternate path (`order__order_created`) tried second.
+  `repeat_purchase_rate_90d` queried by `user_created` routes through the customer link (rule 2).
+- **Value safety:** MetricFlow renders where-clauses as Jinja, so besides doubling quotes and
+  rejecting control characters the backend rejects `{{ }}`, `{% %}`, `{# #}` in values (otherwise
+  an LLM-supplied value could inject a template expression); NaN/inf, booleans, non-ISO time
+  filter values and empty IN lists are rejected with readable messages.
+- **Layer correctness, maximum relative deviation from truth (tolerance 0.5%):**
+  - metricflow: every metric at float precision (~1e-15) except `repeat_purchase_rate_90d` 2.2e-3.
+  - cube: `repeat_purchase_rate_90d` 2.2e-3, `orders` 7.7e-4, `purchasing_customers` 5.1e-4, the rest
+    near exact. MetricFlow's `orders`/`purchasing_customers` (defined on items, per the plan) are exact
+    where Cube's (defined on `fct_orders.gross_revenue > 0`) differ by a few zero-price orders.
+  - The repeat-rate gap is identical in both and is a property of the shared mart rule: "second order
+    within 90 calendar days" (date_diff of order dates, so a same-day second order counts) vs truth's
+    timestamp rule (0.10188 vs 0.10166, measured). Not a layer bug; kept as ported.
+- **Test changes to the shared Project 1 tests (allowed, plan 7.4):** (1) the truth queries bounded
+  timestamps with `BETWEEN '{start}' AND '{end}'`, which stops at midnight at the start of the
+  last day and silently dropped 2026-08-31 (~0.14%, hidden by the 0.5% tolerance); now an exclusive
+  upper bound of end + 1 day, which made the "max deviation" line meaningful. Cube still passes.
+  (2) the repeat-rate check was only `0 <= x <= 1`; it now compares the cohort-size-weighted average
+  of the layer's monthly rates against a rate recomputed from the true world. (3) the Cube-view tests
+  keep their `orders_created` exception as a per-backend table, not shared logic.
+- **Gotchas:** a backend module loaded by file path must be put in `sys.modules` before exec (its
+  `@dataclass` with `from __future__ import annotations` looks the module up; the runner must do
+  the same in P2-5). The first 20 layer tests errored with a confusing
+  `'NoneType' object has no attribute '__dict__'` until then.
+- Cube was brought up for the Cube run and stopped again afterwards (`docker stop cube-cube-1`;
+  `docker compose down` fails without the env vars `cube/up.py` supplies).
+
+**P2-5 (`naive_sql` refactor, `naive_duckdb`, smoke): done, awaiting review.**
+`shared/backends/{naive_sql,naive_bigquery,naive_duckdb}.py`, `tests/test_naive_sql_refactor.py` +
+`tests/fixtures/naive_bigquery_sql.json`, `tests/test_naive_duckdb.py`,
+`project2-dbt-metricflow/{smoke_test.py,parity/compare_naive.py}`, `make p2-smoke`,
+`make p2-naive-parity`. Full suite 161 passed, 22 skipped (Cube down), 1 expected xfail.
+- **Refactor proof:** before touching `naive_bigquery.py`, the SQL it generated for 20 fixed queries
+  (every metric family, all six filter ops, all five grains, order/limit, quote escaping, all
+  12 transactional metrics at once) was captured to `tests/fixtures/naive_bigquery_sql.json`.
+  After the refactor all 20 are byte-identical (the test compiles offline; the fixture is only
+  regenerated with `--regenerate`, never to make the test pass).
+- **Design:** `naive_sql.py` holds the compiler, validation and the shared `NaiveSqlBackend`; a small
+  `Dialect` (table, quote, date_trunc, safe_divide, if_, countif, bool_or) is all that differs per
+  engine. `naive_bigquery.py` = BigQuery dialect + lazy client + byte-guarded `_execute`;
+  `naive_duckdb.py` = DuckDB dialect + in-memory views over `data/observed/*.parquet` (pinned to
+  UTC; independent of the dbt warehouse file, so it can run during `dbt build`). Error messages use
+  the backend's own name, so they are unchanged for `naive_bigquery`.
+- **Live parity (`make p2-naive-parity`):** the same 18 runnable queries through both naive
+  backends: 0 differences at 0.01% tolerance (up to a 149,197-row group-by). Two fixture queries
+  (`filter_gte_lte_numeric`, `filter_eq_numeric`) compare numbers to the string-valued
+  `customer_age_band`: they exist to cover the numeric filter code paths in the byte proof and cannot
+  run on any engine.
+- **Smoke (Claude, "How many orders did we have last month?", est. cost ~$0.08-0.14 per run):**
+  `naive_duckdb` -> 5,898 orders, high confidence, no mention of internal accounts; `metricflow`
+  -> 4,633 (matches the layer-correctness number, internal users excluded). Both reach
+  `final_answer`. The 27% gap is the visible cost of P4 (partly offset by the next point).
+- **A naive-definition quirk worth a README line (identical in both engines, kept as is):** the
+  time range is `created_at >= 'start' AND created_at <= 'end'` on a timestamp, which stops at
+  midnight at the start of the last day, so the naive backends drop most of 2026-08-31 (26 orders
+  instead of ~300). Gemini noticed it on `agent-smoke` and spent its 8-call budget investigating
+  the "partial last day" (`terminal_tool: max_tool_calls`); Claude did not.
+- **`make agent-smoke` after the refactor:** exit 0, live BigQuery through the refactored `_execute`,
+  generated SQL identical to Project 1's; Claude reached `final_answer`, Gemini ended on the tool
+  budget for the reason above (consistent with the budget findings in Project 1's runs, not a
+  regression: its first query returned the same 5,898 as the DuckDB backend).
+- The eval runner registers `naive_duckdb` and `metricflow` (`--backend`); `metricflow` is loaded by
+  file path with its module put in `sys.modules` first (see the P2-4 gotcha).
+- Total API spend for P2-5 (3 smoke runs + `agent-smoke`): about $0.5 of Anthropic/Gemini tokens,
+  plus a few cents of BigQuery scans for the parity run.
+
+**Scope decision (2026-10-07, user): Project 2's paid eval runs are NOT executed.** The budget
+(~$55 for four runs) is too high for a portfolio piece. P2-6 is therefore code + tests only, and
+every Project 2 results section/README must say so plainly: the layer-correctness numbers, the
+smoke test and the byte-identity proof are real and measured; pass rates for the four eval runs do
+not exist and must never be invented or implied. Do not run `make eval` for Project 2 without the
+user's explicit go-ahead and a fresh cost estimate.
+
+**P2-6 (budget parameter, failure analysis, pinned comparisons): code and tests done, no paid run.**
+`shared/agent/loop.py`, `shared/evals/{runner,report,compare,failures}.py`, `config/runs.yaml`,
+`tests/{test_tool_budget,test_compare,test_failures}.py`. Full suite 194 passed, 22 skipped (Cube
+down), 1 expected xfail.
+- **Tool budget (9.1):** `run_agent(max_tool_calls=8)`, `make eval MAX_TOOL_CALLS=...`
+  (`--max-tool-calls`); recorded on every `AgentRun` (traces.jsonl) and in the report.md header;
+  older traces load as 8. At 8 the system prompt is byte-identical to the pre-change capture
+  (`tests/fixtures/system_prompt_default.txt`); at another value only the number changes.
+- **Pinned runs (9.4):** `config/runs.yaml` pins directory names per project; `make compare` /
+  `compare PROJECT=2` / `compare-cross` read only those pins and fail loudly when a pin is unset or
+  its directory is missing (never "latest" - runs/ holds newer unpublished naive x gemini runs).
+  Project 1's three pins are the runs in the existing COMPARISON.md. `make compare` regenerates
+  Project 1's COMPARISON.md identically (tested against a capture, `tests/fixtures/
+  COMPARISON_project1.md`, plus verified end to end). Project 2's four pins are null
+  (not run): `compare --project 2` and `--cross-stack` therefore stop with "not pinned ... has not
+  been published yet", by design. The reports themselves (3-run comparison, sensitivity section,
+  cross-stack with strict + paraphrase-level rates and the "mixes model and engine" baseline label)
+  are tested on synthetic runs.
+- **Failure analysis (9.3):** `failures.md` is written after every run and by `make failures
+  RUN=runs/<dir>`. A first-pass table for a human to correct (one primary cause per failed
+  question): budget (a failed run ended on max_tool_calls) > layer_wrong (queried a metric the
+  layer suite flagged, from `runs/layer_correctness.json`, which `tests/layer` now writes) >
+  clarification > agent_query (a query came back with warnings) > needs_review; judge_disputed
+  and agent_interpretation are never auto-assigned. Validated for free on Project 1's real runs:
+  cube x gemini: 11 failed questions (= its 9/20 strict pass rate), cube x anthropic: 14 failed,
+  10 of them attributed to the tool budget (consistent with Project 1's finding that Claude hit the
+  8-call limit in 21 of 60 runs).
+- Lint: the one pre-existing E501 in `loop.py` was fixed while editing that file; four Project 1
+  files still fail `ruff format --check` (untouched).
+
+**P2-7 (case study README, root README, CLAUDE.md): done, awaiting review.**
+`project2-dbt-metricflow/README.md` (standalone case study; sections per the plan), root `README.md`
+(Project 1 status "done", Project 2 status, Layout, a "Project 2: dbt and MetricFlow" glossary
+section, `Backend`/`Control run` rows updated).
+- **The README's honesty rule:** a status box at the top and an "Eval runs: not executed" section say
+  the paid evaluation was not run; it reports measured things only (layer correctness vs truth, the
+  deterministic 93-node build, DuckDB-vs-BigQuery parity, the byte-identical refactor proof, naive
+  parity, one smoke question) and contains no Project 2 pass rate, cost or latency. The failure
+  tool is shown validated on Project 1's real runs and labelled as such. Any edit that adds an
+  agent result for Project 2 must come from a real run pinned in `config/runs.yaml`.
+- **Verified from sources, not memory (2026-10-07):** MetricFlow license history (AGPL to 0.140.0,
+  BSL 0.150.0-0.208.2, Apache 2.0 from 0.209.0; pinned 0.213.0 is Apache 2.0) from the upstream
+  README; Anthropic API data use from its API data-retention docs (retained data is never used for
+  training without express permission). The README tells the reader to re-check the wording.
+- Two README claims were corrected on review: the `sem_order_items` model carries 12 catalog
+  metrics (not 11), and Cube also uses a per-measure internal-user filter (the "no default
+  segment" point is a MetricFlow convention, not a difference in how the two filter).
+
+## Project 2 status
+
+P2-1 to P2-7 are all done. Stack built and tested; **the four paid evaluation runs are intentionally
+not executed** (user decision, 2026-10-07). Final state: 194 tests passed, 22 skipped (Cube down),
+1 expected xfail; `ruff check` clean; no frozen path differs from the `project1-final` tag.
+Project 3 (Power BI / TMDL) has not started.
+
+- **Next:** review of P2-7. If the evaluation is ever to be run: get a fresh cost estimate, get the
+  user's explicit go-ahead, run the four commands in the README's "Reproduce it", set the pins in
+  `config/runs.yaml`, run `make compare PROJECT=2 && make compare-cross`, review each `failures.md`,
+  and only then add results to the README.

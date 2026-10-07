@@ -4,8 +4,8 @@ Three semantic-layer stacks answer the same business questions through an LLM ag
 
 | Project | Stack | LLM | Status |
 |---|---|---|---|
-| [1](project1-gcp-cube/) | BigQuery + Cube Core | Gemini on Vertex AI | in progress |
-| [2](project2-dbt-metricflow/) | dbt Core + MetricFlow on DuckDB | Claude | planned |
+| [1](project1-gcp-cube/) | BigQuery + Cube Core | Gemini on Vertex AI | done |
+| [2](project2-dbt-metricflow/) | dbt Core + MetricFlow on DuckDB | Claude | stack built and tested; agent evaluation not run (cost) |
 | [3](project3-powerbi-tmdl/) | Power BI Desktop, PBIP/TMDL | Claude | planned |
 
 **Thesis:** a semantic layer makes metric answers *consistent*, but not necessarily *correct*. The
@@ -197,6 +197,9 @@ erDiagram
 config/settings.yaml   seed, benchmark dates, model IDs, token prices
 shared/                snapshot, worlds + truth, semantic contract, agent, evals (shared by all stacks)
 project1-gcp-cube/     BigQuery star schema + Cube Core
+project2-dbt-metricflow/  dbt Core project (staging, star, marts, tests), MetricFlow semantic layer,
+                       backend, parity checks (runs on DuckDB; the warehouse file is data/warehouse/)
+config/runs.yaml       which run directory is the published run for each comparison
 ```
 
 ## Glossary
@@ -256,11 +259,11 @@ of the correct answer in `answers.json`), `tolerance_pct`, and a `rubric` for th
 | **Semantic layer** | A governed model of metrics and dimensions between the warehouse and its consumers (here Cube Core; later MetricFlow and Power BI TMDL). |
 | **Metric catalog** | `shared/semantic/catalog.yaml`: the canonical list of metrics and dimensions with exact definitions. It's the contract every stack must implement under the same names. |
 | **Semantic query** | The structured request the agent sends (metrics, dimensions, time grain, filters). **The LLM never writes SQL**; backends compile semantic queries. |
-| **Backend** | Something that runs a semantic query: `cube` (governed) or `naive_bigquery` (baseline). |
+| **Backend** | Something that runs a semantic query: `cube` or `metricflow` (governed), `naive_bigquery` or `naive_duckdb` (baselines). |
 | **Naive baseline** | `naive_bigquery`: definitions a hurried analyst would write directly on raw tables (revenue = sum of all sale prices, no internal-user exclusion). Represents "LLM on raw tables, no governed layer". |
 | **Provider** | The LLM behind the agent: `gemini` (Vertex AI) or `anthropic` (Claude). |
 | **Agent run** | One question answered by one provider × backend pair: the tool calls, results, final answer, tokens, cost, and latency. |
-| **Control run** | `cube × anthropic`. Same layer, different model. It separates the model effect from the layer effect. |
+| **Control run** | Same layer, different model, to separate the model effect from the layer effect: `cube × anthropic` in Project 1, `metricflow × gemini` in Project 2. |
 
 ### Evaluation
 
@@ -283,6 +286,24 @@ of the correct answer in `answers.json`), `tolerance_pct`, and a `rubric` for th
 | **Surrogate key** | An integer key (`FARM_FINGERPRINT` of the natural key) used for joins instead of source IDs. |
 | **Unknown member** | A row with key −1 in every dimension, so facts with a missing reference still join. |
 | **Mart** | A pre-aggregated table for a specific use (e.g. `mart_customer_cohorts`). |
+
+### Project 2: dbt and MetricFlow
+
+| Term | Meaning |
+|---|---|
+| **dbt (dbt Core)** | A tool that builds warehouse tables from SQL `select` statements in a project folder, with tests and documentation next to the code. Run locally here (`dbt-duckdb`); no dbt Cloud. |
+| **MetricFlow** | The open-source engine behind dbt's semantic layer. It turns "these metrics, grouped by these dimensions" into SQL. The backend asks it to compile and runs the SQL itself on a read-only connection. |
+| **Semantic model** | A dbt model declared to MetricFlow with its entities, dimensions and metrics. Project 2 has six, each a thin `sem_*` view over the star schema. |
+| **Entity** | A key MetricFlow uses to join semantic models (`customer`, `product`, `order`, ...). *Primary* in the model that owns it, *foreign* where it is referenced. Joins are declared by entity, not written as SQL. |
+| **Measure / simple metric** | A single aggregation (sum, count distinct, average) of an expression. In the current dbt spec there is no separate "measure": a *simple metric* is `agg` plus `expr`, and the rows it counts (not cancelled, returned, net) are decided in `expr`. |
+| **`metric_time`** | MetricFlow's common time axis: each metric's own time dimension, exposed under one name so metrics from different models can be queried together. |
+| **`agg_time_dimension`** | The time dimension a semantic model's metrics are aggregated over (e.g. `order_created`, `customer_cohort_month`). |
+| **Helper metric** | A building block (e.g. `returned_items`) that ratio and derived metrics need but that is not in the catalog. Marked `agent_facing: false` and never listed to the agent. |
+| **`naive_duckdb`** | The `naive_bigquery` baseline's identical definitions, run on DuckDB over the observed Parquet files. |
+| **Byte-identical proof** | The test showing `naive_bigquery` generates exactly the same SQL after the compiler was made engine-independent (20 fixed queries captured before the refactor). |
+| **Sensitivity run** | A planned extra run that changes one thing (tool-call budget 8 to 12) to show how much of a result was the budget. Reported separately, never mixed into the headline. |
+| **Pinned run** | The run directory named in `config/runs.yaml` as the published run for a comparison. Comparisons read only pins and fail loudly if one is unset or missing; they never fall back to the latest run. |
+| **Failure cause** | One primary reason per failed question in `failures.md`: `layer_wrong`, `agent_query`, `agent_interpretation`, `budget`, `clarification` or `judge_disputed`. The file is a first-pass guess for a human to correct. |
 
 ### Business terms
 
