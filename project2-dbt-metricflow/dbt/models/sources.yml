@@ -1,0 +1,32 @@
+version: 2
+
+sources:
+  - name: observed
+    description: >
+      The OBSERVED world: what the warehouse sees, with the benchmark's planted problems
+      already injected. These Parquet files are this project's raw layer (the equivalent of
+      Project 1's apparel_ecom_raw dataset), so there is no separate load step.
+    meta:
+      external_location: "read_parquet('{{ var('observed_dir') }}/{name}.parquet')"
+    tables:
+      - name: users
+        columns:
+          - {name: id, data_tests: [unique, not_null]}
+      - name: products
+        columns:
+          - {name: id, data_tests: [unique, not_null]}
+      - name: orders
+        columns:
+          - {name: order_id, data_tests: [unique, not_null]}
+      - name: order_items
+        columns:
+          - {name: id, data_tests: [unique, not_null]}
+      - name: inventory_items
+        columns:
+          - {name: id, data_tests: [unique, not_null]}
+      - name: distribution_centers
+        columns:
+          - {name: id, data_tests: [unique, not_null]}
+      - name: events
+        columns:
+          - {name: id, data_tests: [unique, not_null]}

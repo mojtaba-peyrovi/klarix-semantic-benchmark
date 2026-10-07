@@ -1,0 +1,322 @@
+version: 2
+
+# Generated once from shared/semantic/catalog.yaml (descriptions and units are verbatim);
+# tests/test_metricflow_contract.py keeps them equal. Edit by hand from here.
+
+models:
+  - name: sem_order_items
+    description: "Semantic model over fct_order_items (grain: one row per order item) joined to dim_date for the item's creation date. Holds every item-level metric: the item population (cancelled / returned / net) lives in each metric's expr."
+    agg_time_dimension: order_created
+    semantic_model:
+      enabled: true
+    columns:
+      - name: order_item_id
+        entity: {type: primary, name: order_item}
+      - name: customer_key
+        entity: {type: foreign, name: customer}
+      - name: product_key
+        entity: {type: foreign, name: product}
+      - name: order_id
+        entity: {type: foreign, name: order}
+      - name: order_created
+        granularity: day
+        dimension:
+          type: time
+          name: order_created
+          description: "The order item's created_at, truncated to the requested grain."
+      - name: item_status
+        dimension:
+          type: categorical
+          name: item_status
+          description: "An order item's lifecycle status (Processing, Shipped, Complete, Cancelled, Returned). Most metrics already filter on this; use it directly only when a question is specifically about status mix."
+    metrics:
+      - name: gross_revenue
+        description: "Sum of sale_price for order items that were not cancelled. Includes items that were later returned -- gross_revenue does NOT subtract returns. If someone asks for \"revenue\" without saying which, ask, or state which one you used: gross counts a sale even if the customer sent it back; net_revenue does not."
+        config: {meta: {unit: usd}}
+        type: simple
+        agg: sum
+        expr: "case when is_cancelled then 0 else sale_price end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: returned_revenue
+        description: "Sum of sale_price for items with status Returned. A component of net_revenue, rarely asked for on its own."
+        config: {meta: {unit: usd}}
+        type: simple
+        agg: sum
+        expr: "case when is_returned then sale_price else 0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: cogs
+        description: "Cost of goods sold: sum of products.cost for items that are neither cancelled nor returned (the same item population as net_revenue)."
+        config: {meta: {unit: usd}}
+        type: simple
+        agg: sum
+        expr: net_cost
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: orders
+        description: "Count of distinct orders with at least one non-cancelled item. An order that was fully cancelled does not count here -- nothing was actually sold."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: count_distinct
+        expr: "case when not is_cancelled then order_id end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: items_sold
+        description: "Count of order items that are not cancelled (includes returned items)."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: sum
+        expr: "case when not is_cancelled then 1 else 0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: purchasing_customers
+        description: "Count of distinct users with at least one order (see `orders`) in the period."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: count_distinct
+        expr: "case when not is_cancelled then customer_key end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: returned_items
+        description: "Helper for return_rate: count of returned items."
+        hidden: true
+        config: {meta: {agent_facing: false}}
+        type: simple
+        agg: sum
+        expr: "case when is_returned then 1 else 0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: cancelled_items
+        description: "Helper for cancellation_rate: count of cancelled items."
+        hidden: true
+        config: {meta: {agent_facing: false}}
+        type: simple
+        agg: sum
+        expr: "case when is_cancelled then 1 else 0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: all_items
+        description: "Helper for cancellation_rate: count of all items, cancelled or not."
+        hidden: true
+        config: {meta: {agent_facing: false}}
+        type: simple
+        agg: sum
+        expr: 1
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: net_revenue
+        description: "gross_revenue minus returned_revenue. This is the more defensible \"revenue\" to report to leadership: what the business actually kept. Cancelled items are excluded from both terms, so a cancellation never reduces net_revenue (it was never counted in gross_revenue to begin with)."
+        config: {meta: {unit: usd}}
+        type: derived
+        expr: "gross_revenue - returned_revenue"
+        input_metrics: [gross_revenue, returned_revenue]
+      - name: gross_margin
+        description: "net_revenue minus cogs."
+        config: {meta: {unit: usd}}
+        type: derived
+        expr: "net_revenue - cogs"
+        input_metrics: [net_revenue, cogs]
+      - name: gross_margin_pct
+        description: "gross_margin divided by net_revenue."
+        config: {meta: {unit: ratio}}
+        type: ratio
+        numerator: gross_margin
+        denominator: net_revenue
+      - name: aov
+        description: "Average order value: net_revenue / orders. This divides by the `orders` metric's own definition (has a non-cancelled item), not a raw order count."
+        config: {meta: {unit: usd}}
+        type: ratio
+        numerator: net_revenue
+        denominator: orders
+      - name: return_rate
+        description: "Returned items divided by items_sold -- item-based, not revenue-based. A return rate computed on dollars instead of item counts will differ, since returned items aren't a uniform price; say which one you mean if it matters."
+        config: {meta: {unit: ratio}}
+        type: ratio
+        numerator: returned_items
+        denominator: items_sold
+      - name: cancellation_rate
+        description: "Cancelled items divided by ALL items (cancelled + non-cancelled). Unlike most other metrics here, the denominator is not restricted to non-cancelled items."
+        config: {meta: {unit: ratio}}
+        type: ratio
+        numerator: cancelled_items
+        denominator: all_items
+
+  - name: sem_orders
+    description: "Semantic model over fct_orders (grain: one row per order, fully-cancelled orders included) joined to dim_date. Only new_customers needs the order grain; every other order metric is defined on sem_order_items so that aov stays inside one model."
+    agg_time_dimension: order_created
+    semantic_model:
+      enabled: true
+    columns:
+      - name: order_id
+        entity: {type: primary, name: order}
+      - name: customer_key
+        entity: {type: foreign, name: customer}
+      - name: order_created
+        granularity: day
+        dimension:
+          type: time
+          name: order_created
+          description: "The order item's created_at, truncated to the requested grain."
+    metrics:
+      - name: new_customers
+        description: "Count of users whose first-ever order (by the `orders` definition, using each customer's full order history, not just the queried period) falls in the period. A returning customer's order in the period does not make them \"new\" even if it's their first order in this particular date range."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: sum
+        expr: "case when is_first_order then 1 else 0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+
+  - name: sem_customers
+    description: "Semantic model over dim_customer (grain: one row per user, plus the -1 unknown member) joined to dim_date for the signup date. customer_cohort_month is deliberately NOT exposed here: it has exactly one source, the sem_customer_cohorts model."
+    agg_time_dimension: user_created
+    semantic_model:
+      enabled: true
+    columns:
+      - name: customer_key
+        entity: {type: primary, name: customer}
+      - name: user_created
+        granularity: day
+        dimension:
+          type: time
+          name: user_created
+          description: "The user's signup date (users.created_at), truncated to the requested grain."
+      - name: country
+        dimension:
+          type: categorical
+          name: customer_country
+          description: "users.country."
+      - name: gender
+        dimension:
+          type: categorical
+          name: customer_gender
+          description: "users.gender."
+      - name: age_band
+        dimension:
+          type: categorical
+          name: customer_age_band
+          description: "A banded version of users.age (e.g. 18-24, 25-34, ...)."
+      - name: acquisition_channel
+        dimension:
+          type: categorical
+          name: acquisition_channel
+          description: "users.traffic_source, the channel a customer signed up through. A NULL value is shown as \"Unattributed\" rather than dropped -- see attribution_coverage_rate."
+      - name: is_internal
+        description: "True for internal or test accounts. Used by every metric's filter; not offered to the agent."
+        dimension: {type: categorical, name: is_internal}
+    metrics:
+      - name: signups
+        description: "Count of users created (account creation, not first purchase) in the period."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: count_distinct
+        expr: "case when customer_key <> -1 then customer_key end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: known_channel_signups
+        description: "Helper for attribution_coverage_rate: signups whose acquisition channel is known."
+        hidden: true
+        config: {meta: {agent_facing: false}}
+        type: simple
+        agg: count_distinct
+        expr: "case when customer_key <> -1 and acquisition_channel <> 'Unattributed' then customer_key end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: attribution_coverage_rate
+        description: "Share of users (or sessions, via session_traffic_source) with a known, non-null traffic_source. Governed-stack only -- it exists to expose where acquisition-channel data is missing, not to explain the missing values away. A drop in this metric means \"we stopped knowing,\" not \"the channel declined.\""
+        config: {meta: {unit: ratio}}
+        type: ratio
+        numerator: known_channel_signups
+        denominator: signups
+
+  - name: sem_products
+    description: "Semantic model over dim_product (grain: one row per product, plus the -1 unknown member). Dimensions only: no metrics and no time dimension."
+    semantic_model:
+      enabled: true
+    columns:
+      - name: product_key
+        entity: {type: primary, name: product}
+      - name: category
+        dimension:
+          type: categorical
+          name: category
+          description: "products.category, as entered in the source system. Not stable over time -- see category_family for a definition that survives a rename."
+      - name: category_family
+        dimension:
+          type: categorical
+          name: category_family
+          description: "A stable grouping that maps a renamed category's old and new names to one lineage. Prefer this over `category` for any trend that spans a rename."
+      - name: brand
+        dimension:
+          type: categorical
+          name: brand
+          description: "products.brand."
+      - name: department
+        dimension:
+          type: categorical
+          name: department
+          description: "products.department (Men or Women)."
+      - name: distribution_center_name
+        dimension:
+          type: categorical
+          name: distribution_center
+          description: "The fulfilling distribution_centers.name for an order item."
+
+  - name: sem_sessions
+    description: "Semantic model over fct_sessions (grain: one row per web session) with the session start date."
+    agg_time_dimension: session_started
+    semantic_model:
+      enabled: true
+    columns:
+      - name: session_key
+        entity: {type: primary, name: session}
+      - name: customer_key
+        entity: {type: foreign, name: customer}
+      - name: session_started
+        granularity: day
+        dimension:
+          type: time
+          name: session_started
+          description: "A session's first event timestamp, truncated to the requested grain."
+      - name: session_traffic_source
+        dimension:
+          type: categorical
+          name: session_traffic_source
+          description: "events.traffic_source for a session. Uses a different vocabulary than acquisition_channel (e.g. \"Adwords\" here vs \"Search\" there) because it comes from a separate tracking system; the two are not directly comparable."
+    metrics:
+      - name: sessions
+        description: "Count of distinct session_id values in the events log, in the period."
+        config: {meta: {unit: count}}
+        type: simple
+        agg: count_distinct
+        expr: session_key
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: converted_sessions
+        description: "Helper for session_conversion_rate: sessions containing a purchase event."
+        hidden: true
+        config: {meta: {agent_facing: false}}
+        type: simple
+        agg: count_distinct
+        expr: "case when has_purchase then session_key end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"
+      - name: session_conversion_rate
+        description: "Sessions containing a purchase event, divided by all sessions, in the period."
+        config: {meta: {unit: ratio}}
+        type: ratio
+        numerator: converted_sessions
+        denominator: sessions
+
+  - name: sem_customer_cohorts
+    description: "Semantic model over mart_customer_cohorts (grain: one row per customer). Backs repeat_purchase_rate_90d and is the single source of customer_cohort_month. Its primary entity is customer_cohort, not customer, so dimension names stay unambiguous; the foreign entity customer joins to sem_customers for the internal-account filter and customer attributes."
+    agg_time_dimension: customer_cohort_month
+    semantic_model:
+      enabled: true
+    derived_semantics:
+      entities:
+        - {type: foreign, name: customer, expr: customer_key}
+    columns:
+      - name: customer_key
+        entity: {type: primary, name: customer_cohort}
+      - name: customer_cohort_month
+        granularity: month
+        dimension:
+          type: time
+          name: customer_cohort_month
+          description: "The calendar month of a customer's first-ever order (see `new_customers`). Fixed at month grain -- it's a cohort label, not a queryable event time."
+    metrics:
+      - name: repeat_purchase_rate_90d
+        description: "Share of a first-order cohort (grouped by the month of each customer's first order) that placed a second order within 90 days of the first. Cohorts near the end of the available data are \"immature\" -- they haven't had 90 days yet to repeat -- and should be flagged or excluded, not reported as a low rate."
+        config: {meta: {unit: ratio}}
+        type: simple
+        agg: average
+        expr: "case when repeat_within_90d then 1.0 else 0.0 end"
+        filter: "{{ Dimension('customer__is_internal') }} = false"

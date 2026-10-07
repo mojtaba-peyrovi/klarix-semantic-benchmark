@@ -1,0 +1,13 @@
+# DuckDB path comes from the wrapper (run_dbt.py), which resolves it against the repo
+# root: dbt-duckdb resolves a relative `path:` against the current directory, not this file.
+# TimeZone is pinned so DATE()/casts on the UTC source timestamps can never drift with
+# the machine's zone (BigQuery's TIMESTAMP is always UTC).
+apparel_ecom:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('P2_DUCKDB_PATH') }}"
+      threads: 1
+      settings:
+        TimeZone: UTC

@@ -1,0 +1,32 @@
+name: apparel_ecom
+version: "1.0.0"
+config-version: 2
+profile: apparel_ecom
+
+model-paths: [models]
+seed-paths: [seeds]
+macro-paths: [macros]
+test-paths: [tests]
+
+# No `vars:` defaults on purpose: every parameter comes from config/settings.yaml via
+# run_dbt.py, so there is exactly one place to change the window or a planted problem.
+# Running `dbt` directly (without the wrapper) fails with "Required var ... not found".
+
+models:
+  apparel_ecom:
+    staging:
+      +schema: staging
+      +materialized: view
+    star:
+      +schema: star
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table
+    semantic:
+      +schema: marts
+      +materialized: view
+
+seeds:
+  apparel_ecom:
+    +schema: star

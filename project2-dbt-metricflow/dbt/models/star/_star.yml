@@ -1,0 +1,174 @@
+version: 2
+
+seeds:
+  - name: map_category_family
+    description: >
+      Grain: one row per category name. A governed, hand-maintained mapping from
+      products.category (which a rename can silently change) to a stable category_family
+      that survives the rename. Every category the data currently has is listed explicitly;
+      a new category needs a new row added by hand, which is the point -- this table is a
+      piece of governance, not a formula. Only the renamed pair shares one family. This is
+      the one place that repeats planted-problem names outside config/settings.yaml; the
+      singular test assert_seed_matches_settings keeps the two in sync.
+    config:
+      column_types: {category: varchar, category_family: varchar}
+    columns:
+      - {name: category, description: "Category name as it appears in products.category.", data_tests: [unique, not_null]}
+      - {name: category_family, description: "Stable family the category belongs to.", data_tests: [not_null]}
+
+models:
+  - name: dim_date
+    description: >
+      Grain: one row per calendar day, from the earliest activity in the data through the
+      benchmark end date (not just the analysis window), plus the -1 unknown member.
+    columns:
+      - {name: date_key, description: "Primary key, YYYYMMDD integer; -1 is the unknown member.", data_tests: [unique, not_null]}
+      - {name: date, description: "The calendar day; NULL on the unknown member."}
+      - {name: week_start, description: "Monday of the week containing the day."}
+      - {name: month, description: "First day of the month."}
+      - {name: quarter, description: "First day of the calendar quarter."}
+      - {name: year, description: "Calendar year."}
+      - {name: day_of_week, description: "1 = Sunday ... 7 = Saturday."}
+      - {name: is_weekend, description: "True on Saturday and Sunday."}
+
+  - name: metricflow_time_spine
+    description: "Grain: one row per calendar day. The time spine MetricFlow requires, derived from dim_date."
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        description: "The calendar day."
+        granularity: day
+        data_tests: [unique, not_null]
+
+  - name: dim_distribution_center
+    description: "Grain: one row per distribution center, plus the -1 unknown member."
+    columns:
+      - {name: distribution_center_key, description: "Primary key, surrogate hash of the natural id; -1 is the unknown member.", data_tests: [unique, not_null]}
+      - {name: distribution_center_id, description: "Natural id from the source."}
+      - {name: name, description: "Center name."}
+      - {name: latitude, description: "Latitude."}
+      - {name: longitude, description: "Longitude."}
+
+  - name: dim_product
+    description: >
+      Grain: one row per product_id, plus the -1 unknown member. category_family is the
+      design answer to the category rename: both the old and the new category name map to
+      one family in the governed map_category_family seed.
+    columns:
+      - {name: product_key, description: "Primary key, surrogate hash of product_id; -1 is the unknown member.", data_tests: [unique, not_null]}
+      - {name: product_id, description: "Natural id from the source."}
+      - {name: name, description: "Product name."}
+      - {name: brand, description: "Brand."}
+      - {name: category, description: "Category name as stored in the source at the time (can change over time)."}
+      - {name: category_family, description: "Stable family from the governed mapping; survives category renames."}
+      - {name: department, description: "Department (Men/Women)."}
+      - {name: retail_price, description: "List price."}
+      - {name: cost, description: "Unit cost."}
+      - {name: distribution_center_name, description: "Name of the distribution center that stocks the product."}
+
+  - name: dim_customer
+    description: >
+      Grain: one row per user, plus the -1 unknown member. is_internal is the design
+      answer to injected internal/test accounts: a rule (internal email domain or a
+      test-account name prefix), not a list of ids. acquisition_channel shows "Unattributed"
+      where the source was lost, which makes the consent-tracking loss visible instead of
+      hiding it; it cannot be repaired.
+    columns:
+      - {name: customer_key, description: "Primary key, surrogate hash of user_id; -1 is the unknown member.", data_tests: [unique, not_null]}
+      - {name: user_id, description: "Natural id from the source."}
+      - {name: gender, description: "Gender as recorded."}
+      - {name: age, description: "Age in years at signup."}
+      - {name: age_band, description: "Age bucket: 18-24, 25-34, 35-44, 45-54, 55-64, 65+."}
+      - {name: country, description: "Country name."}
+      - {name: state, description: "State or region."}
+      - {name: city, description: "City."}
+      - {name: acquisition_channel, description: "users.traffic_source, with NULL shown as Unattributed.", data_tests: [not_null]}
+      - {name: created_date_key, description: "Signup date as YYYYMMDD integer."}
+      - {name: customer_cohort_month, description: "First day of the month of the customer's first order with a non-cancelled item; NULL if they never bought."}
+      - {name: is_internal, description: "True for internal/test accounts (rule-based).", data_tests: [not_null]}
+
+  - name: fct_order_items
+    description: >
+      Grain: one row per order item. Gross vs net revenue is handled by separate columns:
+      net_sale_price and net_cost are 0 for cancelled and returned items.
+    columns:
+      - {name: order_item_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - {name: order_id, description: "Parent order."}
+      - name: customer_key
+        description: "Buying customer; -1 if unknown."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - name: product_key
+        description: "Product bought; -1 if unknown."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_product'), field: product_key}
+      - name: created_date_key
+        description: "Creation date as YYYYMMDD; -1 if missing."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: shipped_date_key
+        description: "Shipped date as YYYYMMDD; -1 if not shipped."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: delivered_date_key
+        description: "Delivered date as YYYYMMDD; -1 if not delivered."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - name: returned_date_key
+        description: "Returned date as YYYYMMDD; -1 if not returned."
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_date'), field: date_key}
+      - {name: item_status, description: "Processing, Shipped, Complete, Returned or Cancelled."}
+      - {name: is_cancelled, description: "True if the item was cancelled."}
+      - {name: is_returned, description: "True if the item was returned."}
+      - {name: sale_price, description: "Price paid, whatever the item's later status."}
+      - {name: cost, description: "Unit cost of the product."}
+      - {name: net_sale_price, description: "sale_price, or 0 if cancelled or returned."}
+      - {name: net_cost, description: "cost, or 0 if cancelled or returned."}
+
+  - name: fct_orders
+    description: >
+      Grain: one row per order, including fully-cancelled orders (gross_revenue = 0).
+      is_first_order and order_sequence_number only rank orders with gross_revenue > 0.
+    columns:
+      - {name: order_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - name: customer_key
+        description: "Ordering customer; -1 if unknown."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - {name: order_date_key, description: "Order date as YYYYMMDD; -1 if missing."}
+      - {name: status, description: "Order status as recorded."}
+      - {name: item_count, description: "Number of items on the order."}
+      - {name: gross_revenue, description: "Sum of sale_price of non-cancelled items."}
+      - {name: net_revenue, description: "gross_revenue minus the sale_price of returned items."}
+      - {name: is_first_order, description: "True for the customer's first order with gross_revenue > 0."}
+      - {name: order_sequence_number, description: "1-based rank of this order among the customer's orders with gross_revenue > 0; NULL for fully-cancelled orders."}
+
+  - name: fct_sessions
+    description: >
+      Grain: one row per web session (session_id in events). session_traffic_source shows
+      "Unattributed" where the source was lost.
+    columns:
+      - {name: session_key, description: "Primary key, surrogate hash of session_id.", data_tests: [unique, not_null]}
+      - name: customer_key
+        description: "Customer of the session; -1 for anonymous sessions."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_key}
+      - {name: session_start_ts, description: "Timestamp of the session's first event, UTC."}
+      - {name: session_date_key, description: "Session start date as YYYYMMDD."}
+      - {name: session_traffic_source, description: "Session traffic source, NULL shown as Unattributed.", data_tests: [not_null]}
+      - {name: event_count, description: "Events in the session."}
+      - {name: has_purchase, description: "True if the session contains a purchase event."}

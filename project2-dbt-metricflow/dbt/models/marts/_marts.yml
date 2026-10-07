@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: mart_customer_cohorts
+    description: >
+      Grain: one row per customer. Supports return-rate-by-cohort/channel and
+      repeat-purchase questions. Includes every customer, internal or not; exclusion is
+      dim_customer.is_internal's job, applied as a metric filter in the semantic layer.
+    columns:
+      - {name: customer_key, description: "Primary key (the unknown member is excluded).", data_tests: [unique, not_null]}
+      - {name: user_id, description: "Natural id from the source."}
+      - {name: customer_cohort_month, description: "First day of the month of the customer's first non-cancelled order; NULL if they never bought."}
+      - {name: acquisition_channel, description: "Acquisition channel, NULL shown as Unattributed."}
+      - {name: is_internal, description: "True for internal/test accounts."}
+      - {name: first_order_date, description: "Date of the first order with gross_revenue > 0."}
+      - {name: repeat_within_90d, description: "True if a second order followed within 90 days of the first."}
+      - {name: lifetime_gross_revenue, description: "Sum of sale_price over the customer's non-cancelled items."}
+      - {name: lifetime_net_revenue, description: "Sum of net_sale_price (excludes cancelled and returned items)."}
+      - {name: return_rate, description: "Returned items / non-cancelled items; NULL if they bought nothing."}

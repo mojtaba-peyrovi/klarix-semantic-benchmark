@@ -1,0 +1,104 @@
+version: 2
+
+models:
+  - name: stg_users
+    description: "Grain: one row per user. Typed, snake_case, no business logic."
+    columns:
+      - {name: user_id, description: "Primary key (source users.id).", data_tests: [unique, not_null]}
+      - {name: first_name, description: "First name as entered."}
+      - {name: last_name, description: "Last name as entered."}
+      - {name: email, description: "Email address as entered."}
+      - {name: age, description: "Age in years at signup."}
+      - {name: gender, description: "Gender as recorded (M/F)."}
+      - {name: state, description: "State or region."}
+      - {name: street_address, description: "Street address."}
+      - {name: postal_code, description: "Postal code."}
+      - {name: city, description: "City."}
+      - {name: country, description: "Country name."}
+      - {name: latitude, description: "Latitude of the address."}
+      - {name: longitude, description: "Longitude of the address."}
+      - {name: traffic_source, description: "Acquisition source; NULL when the source is unknown."}
+      - {name: created_at, description: "Signup timestamp, UTC."}
+      - {name: created_date, description: "Signup date, UTC."}
+  - name: stg_products
+    description: "Grain: one row per product_id. No dates on this table."
+    columns:
+      - {name: product_id, description: "Primary key (source products.id).", data_tests: [unique, not_null]}
+      - {name: name, description: "Product name."}
+      - {name: brand, description: "Brand."}
+      - {name: category, description: "Category name as stored in the source (can change over time)."}
+      - {name: department, description: "Department (Men/Women)."}
+      - {name: cost, description: "Unit cost."}
+      - {name: retail_price, description: "List price."}
+      - {name: sku, description: "Stock keeping unit."}
+      - {name: distribution_center_id, description: "Distribution center that stocks the product."}
+  - name: stg_orders
+    description: "Grain: one row per order."
+    columns:
+      - {name: order_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - {name: user_id, description: "Ordering user."}
+      - {name: status, description: "Order status as recorded."}
+      - {name: gender, description: "Gender of the ordering user as recorded on the order."}
+      - {name: num_of_item, description: "Item count as recorded on the order."}
+      - {name: created_at, description: "Order timestamp, UTC."}
+      - {name: created_date, description: "Order date, UTC."}
+      - {name: shipped_at, description: "Shipped timestamp, UTC; NULL if not shipped."}
+      - {name: shipped_date, description: "Shipped date, UTC."}
+      - {name: delivered_at, description: "Delivered timestamp, UTC; NULL if not delivered."}
+      - {name: delivered_date, description: "Delivered date, UTC."}
+      - {name: returned_at, description: "Returned timestamp, UTC; NULL if not returned."}
+      - {name: returned_date, description: "Returned date, UTC."}
+  - name: stg_order_items
+    description: "Grain: one row per order item."
+    columns:
+      - {name: order_item_id, description: "Primary key (source order_items.id).", data_tests: [unique, not_null]}
+      - {name: order_id, description: "Parent order."}
+      - {name: user_id, description: "Buying user."}
+      - {name: product_id, description: "Product bought."}
+      - {name: inventory_item_id, description: "Physical inventory item sold."}
+      - {name: status, description: "Item status: Processing, Shipped, Complete, Returned or Cancelled."}
+      - {name: sale_price, description: "Price paid for the item."}
+      - {name: created_at, description: "Item creation timestamp, UTC."}
+      - {name: created_date, description: "Item creation date, UTC."}
+      - {name: shipped_at, description: "Shipped timestamp, UTC."}
+      - {name: shipped_date, description: "Shipped date, UTC."}
+      - {name: delivered_at, description: "Delivered timestamp, UTC."}
+      - {name: delivered_date, description: "Delivered date, UTC."}
+      - {name: returned_at, description: "Returned timestamp, UTC."}
+      - {name: returned_date, description: "Returned date, UTC."}
+  - name: stg_inventory_items
+    description: >
+      Grain: one row per physical inventory item. Not used by the star schema's facts
+      directly; kept staged for completeness.
+    columns:
+      - {name: inventory_item_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - {name: product_id, description: "Product this item is a unit of."}
+      - {name: cost, description: "Unit cost."}
+      - {name: product_category, description: "Denormalised category."}
+      - {name: product_name, description: "Denormalised product name."}
+      - {name: product_brand, description: "Denormalised brand."}
+      - {name: product_retail_price, description: "Denormalised list price."}
+      - {name: product_department, description: "Denormalised department."}
+      - {name: product_distribution_center_id, description: "Denormalised distribution center id."}
+      - {name: created_at, description: "Stocked timestamp, UTC."}
+      - {name: created_date, description: "Stocked date, UTC."}
+      - {name: sold_at, description: "Sold timestamp, UTC; NULL if unsold."}
+      - {name: sold_date, description: "Sold date, UTC."}
+  - name: stg_distribution_centers
+    description: "Grain: one row per distribution center."
+    columns:
+      - {name: distribution_center_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - {name: name, description: "Center name."}
+      - {name: latitude, description: "Latitude."}
+      - {name: longitude, description: "Longitude."}
+  - name: stg_events
+    description: "Grain: one row per web event."
+    columns:
+      - {name: event_id, description: "Primary key.", data_tests: [unique, not_null]}
+      - {name: user_id, description: "User, NULL for anonymous sessions."}
+      - {name: session_id, description: "Session the event belongs to."}
+      - {name: sequence_number, description: "Position of the event within its session."}
+      - {name: event_type, description: "Event type (home, product, cart, purchase, department, cancel)."}
+      - {name: traffic_source, description: "Session traffic source; NULL when unknown."}
+      - {name: created_at, description: "Event timestamp, UTC."}
+      - {name: created_date, description: "Event date, UTC."}
