@@ -8,11 +8,17 @@ Anything outside that subset is kept as a generic node rather than interpreted.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-MODEL_DIR = Path(__file__).resolve().parent / "pbip" / "KlarixApparel.SemanticModel" / "definition"
+COMMITTED_MODEL_DIR = (
+    Path(__file__).resolve().parent / "pbip" / "KlarixApparel.SemanticModel" / "definition"
+)
+# `traps.py` points this at a deliberately broken copy of the model to show the static tests
+# failing on it (P3-5); nothing else sets it.
+MODEL_DIR = Path(os.environ.get("KLARIX_P3_MODEL_DIR") or COMMITTED_MODEL_DIR)
 
 KINDS = {
     "table", "column", "measure", "partition", "relationship", "expression", "model", "database",

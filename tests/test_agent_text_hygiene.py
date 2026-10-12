@@ -128,7 +128,7 @@ def metricflow_texts() -> Texts:
 def powerbi_texts() -> Texts:
     """Descriptions the agent can see in the Power BI model: visible measures and columns.
 
-    Read from the TMDL files (the static fallback; the live model is checked from P3-6).
+    Read from the TMDL files (the static check; `powerbi_live_texts` reads the open model).
     """
     import importlib.util
     import sys
@@ -154,11 +154,31 @@ def powerbi_texts() -> Texts:
     return out
 
 
+def powerbi_live_texts() -> Texts:
+    """The descriptions the running backend actually serves (skips without Power BI Desktop)."""
+    import importlib.util
+    import sys
+
+    path = REPO_ROOT / "project3-powerbi-tmdl" / "backend" / "powerbi_backend.py"
+    spec = importlib.util.spec_from_file_location("powerbi_backend", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["powerbi_backend"] = module  # its @dataclass needs the module registered
+    spec.loader.exec_module(module)
+    try:
+        backend = module.PowerBiBackend()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    return [(f"metric {m.name}", m.description) for m in backend.list_metrics()] + [
+        (f"dimension {d.name}", d.description) for d in backend.list_dimensions()
+    ]
+
+
 COLLECTORS: dict[str, Callable[[], Texts]] = {
     "naive_bigquery": naive_bigquery_texts,
     "naive_duckdb": naive_duckdb_texts,
     "metricflow": metricflow_texts,
     "powerbi": powerbi_texts,
+    "powerbi_live": powerbi_live_texts,
     "cube": pytest.param(  # type: ignore[dict-item]
         cube_texts,
         marks=pytest.mark.xfail(

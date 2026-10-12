@@ -22,3 +22,11 @@ project2:
   metricflow_gemini: null # control: same model as Project 1's headline
   # Sensitivity run (--max-tool-calls 12), reported separately, never mixed into the headline.
   metricflow_anthropic_budget12: null
+
+project3:
+  # Power BI (Project 3) is scoped to the semantic layer: no agent eval run is part of it, so
+  # every pin stays null. Do not run `make eval BACKEND=powerbi` without an explicit go-ahead
+  # and a fresh cost estimate; if it is ever run, pin the directories here and extend
+  # shared/evals/compare.py, which does not read this block yet.
+  powerbi_anthropic: null
+  powerbi_gemini: null

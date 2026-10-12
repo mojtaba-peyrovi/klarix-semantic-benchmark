@@ -748,3 +748,52 @@ differs from `project2-final`.
   DEFINE override, not a reopened model. Parity now sweeps day/week/month/quarter/year
   grains too (309 queries, 0 differences, max 1.09e-14). P3-5 traps, P3-6 wiring/report/case study are untouched.
 
+
+**P3-5 (Power BI traps): done, awaiting review.** `project3-powerbi-tmdl/{traps.py,trap_plugin.py}`,
+`tests/test_powerbi_traps.py`, `make p3-traps` -> `runs/powerbi_traps.md`. `tmdl_check.py` gained an
+env override (`KLARIX_P3_MODEL_DIR`) so the existing static tests can run against a broken copy.
+Full suite 337 passed, 22 skipped (Cube down), 1 expected xfail; `ruff check` clean.
+- **Method:** the committed model is never changed. Each trap is (a) a `DEFINE MEASURE` prepended to
+  the compiled DAX or raw DAX for the wrong number, and (b) a throwaway copy of the TMDL with the same
+  mistake. The catching tests run twice in pytest subprocesses (`-p trap_plugin`): on the correct model
+  (all must pass) and with the trap on; a catcher counts only if it flips PASSED -> FAILED. `runs/
+  layer_correctness.json` is backed up and restored (the layer suite rewrites it).
+- **Results (window 2024-09-01..2026-08-31):** T2 `orders` without the base measure: +8.5% (Aug 2026,
+  5,026 vs 4,633), +6.8% over the window; caught by the static graph walk and the layer test. T3a summed
+  monthly `return_rate`: 2.76 vs 0.1147; caught by 2 static tests + layer. T3c implicit `SUM(sale_price)`,
+  Aug 2026: +19.6% (includes cancelled items and internal accounts); caught by 2 static tests. T4 `sessions`
+  by `category`: the total repeated on all 28 rows (sum 28x); caught by the compiler/contract tests once
+  reachability is disabled.
+- **Two honest negatives, both in the report:** (1) **T1 bidirectional relationships moved no
+  query**: 261 queries the backend accepts x 7 candidate bidirectional relationships, 0 changed. Bidi
+  only changes queries the correct model refuses (`signups` by `category` goes from the total repeated to
+  per-category counts summing to 155,401 for 96,446 customers). Only the static test catches it. (2) **T3b,
+  the plain average of monthly `return_rate`, is +0.2% off truth, under the layer suite's 0.5% tolerance,
+  so the layer test does NOT catch it**; the two static tests do. Nothing checks a monthly grain.
+- **DEFINE limit (found live):** `DEFINE MEASURE` replaces a measure only where the *query* names it;
+  other model measures that reference it keep the model's version (overriding hidden `_orders` changed
+  nothing for `orders`). So T2/T3 replace the catalog measure itself, and no `aov` catcher is claimed.
+- Auto date/time is mentioned as a model setting, not a fifth trap (no number changes).
+
+**P3-6 (wiring, report page, case study): README draft done, awaiting review.**
+`project3-powerbi-tmdl/{README.md,REPORT_PAGE.md}`, root `README.md` (status, Layout, a "Project 3:
+Power BI" glossary section), `config/runs.yaml` (`project3:` null pins), `shared/evals/runner.py`
+(a `RuntimeError` while building the backend, e.g. Desktop not open, is now a one-line `SystemExit`),
+`tests/test_powerbi_wiring.py`, the live hygiene collector `powerbi_live` in
+`tests/test_agent_text_hygiene.py` (skips without Desktop), `make p3-static-test` now covers the
+static, compiler, traps and wiring tests (95, offline).
+- **Rerun live before writing the README (Desktop reopened with the fixed measures):** `make
+  p3-parity` 309 queries, 257 compared, 52 refused by both, 0 differ, max 1.10e-14; `make p3-layer-test`
+  41 checks, max 3.7e-15 except `repeat_purchase_rate_90d` 2.2e-3. The committed `runs/powerbi_parity.md`
+  is now from the real model, not the DEFINE override.
+- **Scope (per plan section 10):** no agent run, no LLM call, no cost mentioned; the README's "Agent
+  evaluation" section is a scope statement. Do not run `make eval BACKEND=powerbi`.
+- **Report page:** the committed report is an empty page; `REPORT_PAGE.md` is the recipe for three
+  visuals built by hand. Live values it quotes: Sweaters 200/211 (Aug/Sep 2025), Knitwear 201/201
+  (Oct/Nov 2025); `attribution_coverage_rate` about 0.69-0.72 from 2026-03.
+- **Not checked:** what Desktop rewrites on the first save of the final model; the installer
+  (non-Store) port-file path; Cube's blank-vs-zero behaviour.
+- **Final state after P3-6 draft:** 340 passed, 22 skipped (Cube down), 1 expected xfail; `ruff check`
+  and `ruff format --check` clean; no frozen path differs from `project2-final`. A test module named
+  `conftest` collides across `tests/` and `tests/layer/`: load backends by file path, never
+  `from conftest import ...`, outside `tests/conftest.py` itself.

@@ -6,7 +6,7 @@ Three semantic-layer stacks answer the same business questions through an LLM ag
 |---|---|---|---|
 | [1](project1-gcp-cube/) | BigQuery + Cube Core | Gemini on Vertex AI | done |
 | [2](project2-dbt-metricflow/) | dbt Core + MetricFlow on DuckDB | Claude | stack built and tested; agent evaluation not run (cost) |
-| [3](project3-powerbi-tmdl/) | Power BI Desktop, PBIP/TMDL | Claude | scaffolding started |
+| [3](project3-powerbi-tmdl/) | Power BI Desktop, PBIP/TMDL | none (scoped to the layer) | stack built and tested; no agent run |
 
 **Thesis:** a semantic layer makes metric answers *consistent*, but not necessarily *correct*. The
 layer is only as correct as the judgment encoded into it. The benchmark measures where stack +
@@ -199,6 +199,8 @@ shared/                snapshot, worlds + truth, semantic contract, agent, evals
 project1-gcp-cube/     BigQuery star schema + Cube Core
 project2-dbt-metricflow/  dbt Core project (staging, star, marts, tests), MetricFlow semantic layer,
                        backend, parity checks (runs on DuckDB; the warehouse file is data/warehouse/)
+project3-powerbi-tmdl/ Power BI project (PBIP/TMDL model), DAX compiler and backend, export of the
+                       star schema to Parquet, parity and traps scripts (Windows + Desktop for the live parts)
 config/runs.yaml       which run directory is the published run for each comparison
 ```
 
@@ -256,7 +258,7 @@ of the correct answer in `answers.json`), `tolerance_pct`, and a `rubric` for th
 
 | Term | Meaning |
 |---|---|
-| **Semantic layer** | A governed model of metrics and dimensions between the warehouse and its consumers (here Cube Core; later MetricFlow and Power BI TMDL). |
+| **Semantic layer** | A governed model of metrics and dimensions between the warehouse and its consumers (Cube Core, MetricFlow, or a Power BI TMDL model). |
 | **Metric catalog** | `shared/semantic/catalog.yaml`: the canonical list of metrics and dimensions with exact definitions. It's the contract every stack must implement under the same names. |
 | **Semantic query** | The structured request the agent sends (metrics, dimensions, time grain, filters). **The LLM never writes SQL**; backends compile semantic queries. |
 | **Backend** | Something that runs a semantic query: `cube` or `metricflow` (governed), `naive_bigquery` or `naive_duckdb` (baselines). |
@@ -304,6 +306,23 @@ of the correct answer in `answers.json`), `tolerance_pct`, and a `rubric` for th
 | **Sensitivity run** | A planned extra run that changes one thing (tool-call budget 8 to 12) to show how much of a result was the budget. Reported separately, never mixed into the headline. |
 | **Pinned run** | The run directory named in `config/runs.yaml` as the published run for a comparison. Comparisons read only pins and fail loudly if one is unset or missing; they never fall back to the latest run. |
 | **Failure cause** | One primary reason per failed question in `failures.md`: `layer_wrong`, `agent_query`, `agent_interpretation`, `budget`, `clarification` or `judge_disputed`. The file is a first-pass guess for a human to correct. |
+
+### Project 3: Power BI
+
+| Term | Meaning |
+|---|---|
+| **PBIP** | Power BI Project: a Power BI file saved as a folder of text files (a `.pbip` pointer, a report folder and a semantic-model folder) so it can live in git. |
+| **TMDL** | Tabular Model Definition Language: the text format for a Power BI semantic model, one file per table plus relationships and model settings. |
+| **DAX** | Data Analysis Expressions: Power BI's formula and query language. Measures are written in it; the backend compiles a `SUMMARIZECOLUMNS` query. |
+| **Measure** | A DAX formula evaluated in the filter context of a query (a visual, or here a compiled query). The 18 catalog metrics are measures on the `Metrics` table. |
+| **Base measure** | A hidden measure that does one aggregation and applies the internal-user exclusion. Catalog measures are built from base measures and never read columns directly. |
+| **Role-playing date table** | One date table loaded once per role (`Order Date`, `Signup Date`, `Session Date`) instead of one date table with several relationships, so no measure needs `USERELATIONSHIP`. |
+| **Cross-filter direction** | Whether a relationship passes filters one way (dimension to fact) or both ways. Both-way relationships are a common source of wrong numbers. |
+| **Implicit measure** | A number a report builds by summing or counting a raw column, with no measure written. Discouraged in this model. |
+| **Local Analysis Services engine** | The engine Power BI Desktop starts for each open project on a random localhost port. The backend finds it and sends it DAX through ADOMD.NET. |
+| **ADOMD.NET** | Microsoft's .NET client library for Analysis Services. Downloaded by `make p3-setup`, not committed. |
+| **Reachability rule** | The backend refuses a query whose dimension, filter or time axis cannot filter the metric's tables, instead of returning a repeated or unfiltered total. |
+| **Power BI trap** | A common modeling mistake (bidirectional relationship, measure without the base measure, summed ratio, implicit measure, unrelated group-by) shown to produce a wrong number and to be caught by a named test. |
 
 ### Business terms
 

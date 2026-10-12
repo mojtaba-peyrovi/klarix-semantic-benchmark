@@ -1,4 +1,4 @@
-.PHONY: p2-setup p2-build p2-test p2-docs p2-mf-validate p2-layer-test p2-smoke p2-parity p2-naive-parity p3-setup p3-export p3-set-path p3-refresh p3-static-test p3-compiler-test p3-live-test p3-layer-test p3-parity setup gcp-check snapshot world bq-load bq-build bq-test agent-smoke cube-up cube-test eval compare compare-cross failures test lint
+.PHONY: p2-setup p2-build p2-test p2-docs p2-mf-validate p2-layer-test p2-smoke p2-parity p2-naive-parity p3-setup p3-export p3-set-path p3-refresh p3-static-test p3-compiler-test p3-live-test p3-layer-test p3-parity p3-traps setup gcp-check snapshot world bq-load bq-build bq-test agent-smoke cube-up cube-test eval compare compare-cross failures test lint
 
 BACKEND ?= cube
 PROVIDER ?= gemini
@@ -103,7 +103,7 @@ p3-refresh:
 	uv run python project3-powerbi-tmdl/refresh.py
 
 p3-static-test:
-	uv run pytest tests/test_powerbi_static.py
+	uv run pytest tests/test_powerbi_static.py tests/test_dax_compiler.py tests/test_powerbi_traps.py tests/test_powerbi_wiring.py
 
 p3-compiler-test:
 	uv run pytest tests/test_dax_compiler.py
@@ -116,3 +116,6 @@ p3-layer-test:
 
 p3-parity:
 	uv run python project3-powerbi-tmdl/parity.py
+
+p3-traps:
+	uv run python project3-powerbi-tmdl/traps.py

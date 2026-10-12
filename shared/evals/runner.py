@@ -204,7 +204,10 @@ def main(
         raise SystemExit("data/truth/answers.json missing; run `make world` first.")
     answers = json.loads(ANSWERS_PATH.read_text(encoding="utf-8"))
 
-    backend_obj = build_backend(backend, settings)
+    try:
+        backend_obj = build_backend(backend, settings)
+    except RuntimeError as exc:  # e.g. Power BI Desktop not open, warehouse missing or locked
+        raise SystemExit(f"cannot start backend {backend!r}: {exc}") from exc
     # One provider instance for the whole run: run_agent() calls provider.start()
     # at the top of every call, which resets its conversation state, so nothing
     # leaks between questions or paraphrases.
