@@ -1,4 +1,4 @@
-"""Backend-agnostic layer tests: every check runs once per backend (`cube`, `metricflow`)
+"""Backend-agnostic layer tests: every check runs once per backend (`cube`, `metricflow`, `powerbi`)
 with the same truth, the same tolerance and the same queries. A backend that isn't
 reachable (Cube not up, DuckDB warehouse missing) is skipped, not failed.
 
@@ -22,7 +22,7 @@ REL_TOL = 0.005  # 0.5% -- float rounding across engines' aggregation order
 DEVIATIONS: dict[str, dict[str, float]] = defaultdict(dict)
 
 
-@pytest.fixture(scope="session", params=["cube", "metricflow"])
+@pytest.fixture(scope="session", params=["cube", "metricflow", "powerbi"])
 def backend(request):
     return request.getfixturevalue(f"{request.param}_backend")
 

@@ -1,0 +1,21 @@
+model Model
+	culture: en-US
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	discourageImplicitMeasures
+
+annotation __PBI_TimeIntelligenceEnabled = 0
+
+annotation PBI_ProTooling = ["DevMode"]
+
+ref table Metrics
+ref table 'Order Date'
+ref table 'Session Date'
+ref table 'Signup Date'
+ref table dim_customer
+ref table dim_distribution_center
+ref table dim_product
+ref table fct_order_items
+ref table fct_orders
+ref table fct_sessions
+ref table mart_customer_cohorts
+

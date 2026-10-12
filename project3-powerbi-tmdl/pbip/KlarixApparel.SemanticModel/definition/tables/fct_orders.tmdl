@@ -1,0 +1,75 @@
+/// One row per order (fully cancelled orders included).
+table fct_orders
+	lineageTag: d336242b-0fda-5a18-89ec-6d8d4494a3ca
+
+	column order_id
+		dataType: int64
+		isHidden
+		lineageTag: fe7ee17a-3a74-57b1-984e-eb2dbd376e83
+		summarizeBy: none
+		sourceColumn: order_id
+
+	column customer_key
+		dataType: int64
+		isHidden
+		lineageTag: 6230fa77-661c-5b84-9b9a-07fa43c37570
+		summarizeBy: none
+		sourceColumn: customer_key
+
+	column order_date_key
+		dataType: int64
+		isHidden
+		lineageTag: 213b60a1-02e9-51b8-a4c7-7001d517ec49
+		summarizeBy: none
+		sourceColumn: order_date_key
+
+	column status
+		dataType: string
+		isHidden
+		lineageTag: 2e22f147-3c5f-5eca-8fb2-50f9b85c1589
+		summarizeBy: none
+		sourceColumn: status
+
+	column item_count
+		dataType: int64
+		isHidden
+		lineageTag: 554507c0-14b4-52b4-b03d-e5fc64db084b
+		summarizeBy: none
+		sourceColumn: item_count
+
+	column gross_revenue
+		dataType: double
+		isHidden
+		lineageTag: e3073f2e-e150-5899-bb7a-9610f2f89773
+		summarizeBy: none
+		sourceColumn: gross_revenue
+
+	column net_revenue
+		dataType: double
+		isHidden
+		lineageTag: 7d444ce8-49b3-5376-ade0-7c9b237c2f83
+		summarizeBy: none
+		sourceColumn: net_revenue
+
+	column is_first_order
+		dataType: boolean
+		isHidden
+		lineageTag: d7add3c0-ed14-5e0d-8e98-1ba6778b5248
+		summarizeBy: none
+		sourceColumn: is_first_order
+
+	column order_sequence_number
+		dataType: int64
+		isHidden
+		lineageTag: 007c6063-df9f-5e5c-8ca2-a764692c5b38
+		summarizeBy: none
+		sourceColumn: order_sequence_number
+
+	partition fct_orders = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\fct_orders.parquet"))
+				in
+				    Source
+

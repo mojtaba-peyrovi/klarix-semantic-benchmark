@@ -1,0 +1,97 @@
+/// One row per customer, plus the -1 unknown member (anonymous sessions).
+table dim_customer
+	lineageTag: 6741f4ca-886e-50c8-b2ff-da292bf8c211
+
+	column customer_key
+		dataType: int64
+		isHidden
+		lineageTag: 3988196f-865c-5880-914c-70f527f3b5bb
+		summarizeBy: none
+		sourceColumn: customer_key
+
+	column user_id
+		dataType: int64
+		isHidden
+		lineageTag: baaa7470-2d73-533c-842c-8f17eeaec504
+		summarizeBy: none
+		sourceColumn: user_id
+
+	/// users.gender.
+	column gender
+		dataType: string
+		lineageTag: af77ef94-530b-5b32-952d-58985beeba57
+		summarizeBy: none
+		sourceColumn: gender
+
+	column age
+		dataType: int64
+		isHidden
+		lineageTag: 9b03d627-03a2-59da-b052-294b550cb213
+		summarizeBy: none
+		sourceColumn: age
+
+	/// A banded version of users.age (e.g. 18-24, 25-34, ...).
+	column age_band
+		dataType: string
+		lineageTag: 6508ce77-987e-5d6c-84ae-b1da7e7d9127
+		summarizeBy: none
+		sourceColumn: age_band
+
+	/// users.country.
+	column country
+		dataType: string
+		lineageTag: 3ca52ba1-07f7-535f-9e82-8e0cd003e3ee
+		summarizeBy: none
+		sourceColumn: country
+
+	column state
+		dataType: string
+		isHidden
+		lineageTag: ce9a8277-b91c-5e6c-b6bc-eb43c22fa912
+		summarizeBy: none
+		sourceColumn: state
+
+	column city
+		dataType: string
+		isHidden
+		lineageTag: c13aa8d8-f8b8-5222-b694-46ae3cd05aae
+		summarizeBy: none
+		sourceColumn: city
+
+	/// users.traffic_source, the channel a customer signed up through. A NULL value is shown as "Unattributed" rather than dropped -- see attribution_coverage_rate.
+	column acquisition_channel
+		dataType: string
+		lineageTag: 2d930d3d-5bf0-5c19-b0ec-db030b4deab3
+		summarizeBy: none
+		sourceColumn: acquisition_channel
+
+	column created_date_key
+		dataType: int64
+		isHidden
+		lineageTag: beaca2e6-0e2a-568b-b701-ca466f181c06
+		summarizeBy: none
+		sourceColumn: created_date_key
+
+	/// The calendar month of a customer's first-ever order (see `new_customers`). Fixed at month grain -- it's a cohort label, not a queryable event time.
+	column customer_cohort_month
+		dataType: dateTime
+		formatString: yyyy-MM
+		lineageTag: 6a841833-4af6-5f6a-847c-aa7cc3d3d403
+		summarizeBy: none
+		sourceColumn: customer_cohort_month
+
+	column is_internal
+		dataType: boolean
+		isHidden
+		lineageTag: 7fe93eda-5842-5127-9115-80dc3b2c2d74
+		summarizeBy: none
+		sourceColumn: is_internal
+
+	partition dim_customer = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\dim_customer.parquet"))
+				in
+				    Source
+

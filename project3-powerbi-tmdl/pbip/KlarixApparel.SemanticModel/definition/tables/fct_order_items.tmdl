@@ -1,0 +1,117 @@
+/// One row per order item.
+table fct_order_items
+	lineageTag: b44e4bbf-2d1e-5bd1-b8ea-a890bf27f595
+
+	column order_item_id
+		dataType: int64
+		isHidden
+		lineageTag: f54405da-0bb1-56d3-bc8d-1aac898005d0
+		summarizeBy: none
+		sourceColumn: order_item_id
+
+	column order_id
+		dataType: int64
+		isHidden
+		lineageTag: 374faf1a-7f01-51d8-8e30-d4cc7e0ac5af
+		summarizeBy: none
+		sourceColumn: order_id
+
+	column customer_key
+		dataType: int64
+		isHidden
+		lineageTag: 658a332e-8124-528d-a106-4425f8a15ba4
+		summarizeBy: none
+		sourceColumn: customer_key
+
+	column product_key
+		dataType: int64
+		isHidden
+		lineageTag: b5af8ad5-3a4e-50b9-a9ba-432f0a22317d
+		summarizeBy: none
+		sourceColumn: product_key
+
+	column created_date_key
+		dataType: int64
+		isHidden
+		lineageTag: d2665ed9-eae3-5539-8456-34940874d411
+		summarizeBy: none
+		sourceColumn: created_date_key
+
+	column shipped_date_key
+		dataType: int64
+		isHidden
+		lineageTag: 4f097d76-a614-5c56-a0a1-443d87ebb068
+		summarizeBy: none
+		sourceColumn: shipped_date_key
+
+	column delivered_date_key
+		dataType: int64
+		isHidden
+		lineageTag: f6e347c8-21a8-5286-a454-608657020668
+		summarizeBy: none
+		sourceColumn: delivered_date_key
+
+	column returned_date_key
+		dataType: int64
+		isHidden
+		lineageTag: e8c5060d-030f-5953-8855-b73ed3bb308d
+		summarizeBy: none
+		sourceColumn: returned_date_key
+
+	/// An order item's lifecycle status (Processing, Shipped, Complete, Cancelled, Returned). Most metrics already filter on this; use it directly only when a question is specifically about status mix.
+	column item_status
+		dataType: string
+		lineageTag: f1cdd108-70ce-5040-93c5-24437f3ef164
+		summarizeBy: none
+		sourceColumn: item_status
+
+	column is_cancelled
+		dataType: boolean
+		isHidden
+		lineageTag: 2086e822-f301-5097-bf0f-b99507404cd5
+		summarizeBy: none
+		sourceColumn: is_cancelled
+
+	column is_returned
+		dataType: boolean
+		isHidden
+		lineageTag: 3cc9d1ec-6d7a-50d8-9528-21d5768c1f00
+		summarizeBy: none
+		sourceColumn: is_returned
+
+	column sale_price
+		dataType: double
+		isHidden
+		lineageTag: eb2cbd15-4fda-5fc6-9ffb-22783934a5f3
+		summarizeBy: none
+		sourceColumn: sale_price
+
+	column cost
+		dataType: double
+		isHidden
+		lineageTag: d27708fe-5987-5a7d-b590-f7cc285d1530
+		summarizeBy: none
+		sourceColumn: cost
+
+	column net_sale_price
+		dataType: double
+		isHidden
+		lineageTag: 0cfd991a-dde7-52ef-a8b0-b412d80985ce
+		summarizeBy: none
+		sourceColumn: net_sale_price
+
+	column net_cost
+		dataType: double
+		isHidden
+		lineageTag: d0dde3f1-19a7-5dac-b1d0-691e2fb1697c
+		summarizeBy: none
+		sourceColumn: net_cost
+
+	partition fct_order_items = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\fct_order_items.parquet"))
+				in
+				    Source
+

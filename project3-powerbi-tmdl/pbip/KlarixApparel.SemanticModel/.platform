@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "KlarixApparel"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "7000bcb8-e261-4a85-9208-4c12c6d8ef83"
+  }
+}

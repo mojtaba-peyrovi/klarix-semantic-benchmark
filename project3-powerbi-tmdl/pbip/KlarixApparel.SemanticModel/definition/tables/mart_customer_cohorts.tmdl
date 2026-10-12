@@ -1,0 +1,84 @@
+/// One row per real customer (no unknown member). Feeds repeat_purchase_rate_90d.
+table mart_customer_cohorts
+	isHidden
+	lineageTag: 025a633a-298f-558f-8b40-0ebcd1e772cc
+
+	column customer_key
+		dataType: int64
+		isHidden
+		lineageTag: 9c8cd3d7-b9c8-5c81-bd77-02de532b9141
+		summarizeBy: none
+		sourceColumn: customer_key
+
+	column user_id
+		dataType: int64
+		isHidden
+		lineageTag: 32f32096-49af-5380-a8d5-e01e936dacf2
+		summarizeBy: none
+		sourceColumn: user_id
+
+	column customer_cohort_month
+		dataType: dateTime
+		isHidden
+		formatString: yyyy-MM
+		lineageTag: 0fa00ccc-e91e-580d-b497-368f49adf291
+		summarizeBy: none
+		sourceColumn: customer_cohort_month
+
+	column acquisition_channel
+		dataType: string
+		isHidden
+		lineageTag: 96734304-923a-5164-a045-287c1f4f5081
+		summarizeBy: none
+		sourceColumn: acquisition_channel
+
+	column is_internal
+		dataType: boolean
+		isHidden
+		lineageTag: bec69f07-910e-523e-8d01-aa51adbe3804
+		summarizeBy: none
+		sourceColumn: is_internal
+
+	column first_order_date
+		dataType: dateTime
+		isHidden
+		lineageTag: 670a636a-52be-5288-ab38-5e5973c64440
+		summarizeBy: none
+		sourceColumn: first_order_date
+
+	column repeat_within_90d
+		dataType: boolean
+		isHidden
+		lineageTag: e6092e00-897b-569f-8142-5339c33a5824
+		summarizeBy: none
+		sourceColumn: repeat_within_90d
+
+	column lifetime_gross_revenue
+		dataType: double
+		isHidden
+		lineageTag: 7d091c39-586e-5289-b0d6-27335c60cb32
+		summarizeBy: none
+		sourceColumn: lifetime_gross_revenue
+
+	column lifetime_net_revenue
+		dataType: double
+		isHidden
+		lineageTag: 37b50567-c1e0-52cd-b6c6-03b445b14dba
+		summarizeBy: none
+		sourceColumn: lifetime_net_revenue
+
+	column return_rate
+		dataType: double
+		isHidden
+		lineageTag: 3892c44e-f00b-52c9-867d-537f5d36b061
+		summarizeBy: none
+		sourceColumn: return_rate
+
+	partition mart_customer_cohorts = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\mart_customer_cohorts.parquet"))
+				in
+				    Source
+

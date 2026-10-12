@@ -1,0 +1,48 @@
+/// One row per distribution center. Not related to any fact: the center name is on dim_product.
+table dim_distribution_center
+	isHidden
+	lineageTag: e1d33ea9-c688-5edc-8630-08349f582bd8
+
+	column distribution_center_key
+		dataType: int64
+		isHidden
+		lineageTag: 88d2854a-57ac-5bc3-ae38-04d646709ce5
+		summarizeBy: none
+		sourceColumn: distribution_center_key
+
+	column distribution_center_id
+		dataType: int64
+		isHidden
+		lineageTag: 5eec9df9-9ea0-5a40-8788-9438f6acfbde
+		summarizeBy: none
+		sourceColumn: distribution_center_id
+
+	column name
+		dataType: string
+		isHidden
+		lineageTag: 2a3a97cb-3cf8-5c2d-b614-d4025a40f949
+		summarizeBy: none
+		sourceColumn: name
+
+	column latitude
+		dataType: double
+		isHidden
+		lineageTag: ecded813-2664-535c-ad2f-a29dfb638084
+		summarizeBy: none
+		sourceColumn: latitude
+
+	column longitude
+		dataType: double
+		isHidden
+		lineageTag: bbfd0654-7e64-595a-a55b-20ab3b1f493b
+		summarizeBy: none
+		sourceColumn: longitude
+
+	partition dim_distribution_center = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\dim_distribution_center.parquet"))
+				in
+				    Source
+

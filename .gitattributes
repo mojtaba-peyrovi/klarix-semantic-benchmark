@@ -1,0 +1,2 @@
+# Power BI Desktop writes CRLF; keep the PBIP files CRLF in the working tree
+project3-powerbi-tmdl/pbip/** text eol=crlf

@@ -30,9 +30,12 @@ project2 = [
     "dbt-metricflow==0.15.0",
     "metricflow==0.213.0",
 ]
+project3 = [
+    "pythonnet==3.2.1",
+]
 
 [tool.uv]
-default-groups = ["dev", "project2"]
+default-groups = ["dev", "project2", "project3"]
 
 [build-system]
 requires = ["hatchling"]

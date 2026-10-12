@@ -21,7 +21,10 @@ class _BigResultBackend(Backend):
     def run(self, query: SemanticQuery) -> SemanticResult:
         rows = [[i] for i in range(MAX_RESULT_ROWS + 50)]
         return SemanticResult(
-            columns=["orders"], rows=rows, compiled_query="SELECT ...", backend=self.name,
+            columns=["orders"],
+            rows=rows,
+            compiled_query="SELECT ...",
+            backend=self.name,
             latency_ms=1,
         )
 
@@ -37,7 +40,10 @@ class _SmallResultBackend(Backend):
 
     def run(self, query: SemanticQuery) -> SemanticResult:
         return SemanticResult(
-            columns=["orders"], rows=[[1], [2]], compiled_query="SELECT ...", backend=self.name,
+            columns=["orders"],
+            rows=[[1], [2]],
+            compiled_query="SELECT ...",
+            backend=self.name,
             latency_ms=1,
         )
 

@@ -1,4 +1,4 @@
-.PHONY: p2-setup p2-build p2-test p2-docs p2-mf-validate p2-layer-test p2-smoke p2-parity p2-naive-parity setup gcp-check snapshot world bq-load bq-build bq-test agent-smoke cube-up cube-test eval compare compare-cross failures test lint
+.PHONY: p2-setup p2-build p2-test p2-docs p2-mf-validate p2-layer-test p2-smoke p2-parity p2-naive-parity p3-setup p3-export p3-set-path p3-refresh p3-static-test p3-compiler-test p3-live-test p3-layer-test p3-parity setup gcp-check snapshot world bq-load bq-build bq-test agent-smoke cube-up cube-test eval compare compare-cross failures test lint
 
 BACKEND ?= cube
 PROVIDER ?= gemini
@@ -88,3 +88,31 @@ p2-smoke:
 
 p2-naive-parity:
 	uv run python project2-dbt-metricflow/parity/compare_naive.py
+
+p3-setup:
+	uv sync --group project3
+	uv run python project3-powerbi-tmdl/setup_adomd.py
+
+p3-export:
+	uv run python project3-powerbi-tmdl/export_star.py
+
+p3-set-path:
+	uv run python project3-powerbi-tmdl/set_data_path.py
+
+p3-refresh:
+	uv run python project3-powerbi-tmdl/refresh.py
+
+p3-static-test:
+	uv run pytest tests/test_powerbi_static.py
+
+p3-compiler-test:
+	uv run pytest tests/test_dax_compiler.py
+
+p3-live-test:
+	uv run pytest tests/test_powerbi_live.py tests/test_powerbi_contract.py -rs
+
+p3-layer-test:
+	uv run pytest tests/layer -k powerbi -rs
+
+p3-parity:
+	uv run python project3-powerbi-tmdl/parity.py

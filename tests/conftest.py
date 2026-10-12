@@ -1,9 +1,9 @@
 """Shared test fixtures.
 
-`project1-gcp-cube/backend/` and `project2-dbt-metricflow/backend/` aren't importable
-Python packages (the parent directory names have hyphens -- same reason
-`project1-gcp-cube/bigquery/` isn't; see CLAUDE.md), so each backend module is loaded
-here by file path instead of `import`.
+`project1-gcp-cube/backend/`, `project2-dbt-metricflow/backend/` and
+`project3-powerbi-tmdl/backend/` aren't importable Python packages (the parent directory
+names have hyphens -- same reason `project1-gcp-cube/bigquery/` isn't; see CLAUDE.md), so
+each backend module is loaded here by file path instead of `import`.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ CUBE_BACKEND_PATH = REPO_ROOT / "project1-gcp-cube" / "backend" / "cube_backend.
 METRICFLOW_BACKEND_PATH = (
     REPO_ROOT / "project2-dbt-metricflow" / "backend" / "metricflow_backend.py"
 )
+POWERBI_BACKEND_PATH = REPO_ROOT / "project3-powerbi-tmdl" / "backend" / "powerbi_backend.py"
 CUBE_BASE_URL = "http://localhost:4000"
 
 
@@ -64,4 +65,15 @@ def metricflow_backend(metricflow_module):
     try:
         return metricflow_module.MetricFlowBackend(load_settings())
     except RuntimeError as e:
+        pytest.skip(str(e))
+
+
+@pytest.fixture(scope="session")
+def powerbi_backend():
+    """A live PowerBiBackend, or a skip if Power BI Desktop is not reachable (project not open,
+    ADOMD.NET not installed, not Windows) -- the message says what to do."""
+    module = load_backend_module("powerbi_backend", POWERBI_BACKEND_PATH)
+    try:
+        return module.PowerBiBackend(load_settings())
+    except (module.desktop.DesktopError, RuntimeError) as e:
         pytest.skip(str(e))

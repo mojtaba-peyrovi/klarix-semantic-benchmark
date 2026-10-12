@@ -1,0 +1,293 @@
+/// Measure-only table: the 18 catalog metrics, plus hidden base measures in _base.
+table Metrics
+	lineageTag: ce2f6f4c-3c6f-5118-9f32-0ecfa12a8065
+
+	/// Sum of sale_price for order items that were not cancelled. Includes items that were later returned -- gross_revenue does NOT subtract returns. If someone asks for "revenue" without saying which, ask, or state which one you used: gross counts a sale even if the customer sent it back; net_revenue does not.
+	measure gross_revenue = [_gross_revenue]
+		formatString: #,0.00
+		lineageTag: b2819856-4d92-592f-9c32-4e65af8a62df
+
+	/// Sum of sale_price for items with status Returned. A component of net_revenue, rarely asked for on its own.
+	measure returned_revenue = [_returned_revenue]
+		formatString: #,0.00
+		lineageTag: efd29ba7-22b7-5262-8c9b-8998605f0b01
+
+	/// gross_revenue minus returned_revenue. This is the more defensible "revenue" to report to leadership: what the business actually kept. Cancelled items are excluded from both terms, so a cancellation never reduces net_revenue (it was never counted in gross_revenue to begin with).
+	measure net_revenue = [gross_revenue] - [returned_revenue]
+		formatString: #,0.00
+		lineageTag: 3b09e3c4-4e91-5a3f-aa86-f7950c65ebbe
+
+	/// Cost of goods sold: sum of products.cost for items that are neither cancelled nor returned (the same item population as net_revenue).
+	measure cogs = [_cogs]
+		formatString: #,0.00
+		lineageTag: add90fbf-8350-55d6-b78a-90c4504226cb
+
+	/// net_revenue minus cogs.
+	measure gross_margin = [net_revenue] - [cogs]
+		formatString: #,0.00
+		lineageTag: 66071094-ff52-54f7-9fce-b4a85250561d
+
+	/// gross_margin divided by net_revenue.
+	measure gross_margin_pct = DIVIDE([gross_margin], [net_revenue])
+		formatString: 0.0000
+		lineageTag: eeee1a78-3eb9-5fad-bfba-6973859293ca
+
+	/// Count of distinct orders with at least one non-cancelled item. An order that was fully cancelled does not count here -- nothing was actually sold.
+	measure orders = [_orders]
+		formatString: #,0
+		lineageTag: a06dd090-1b60-5791-a845-0da4b90cc4af
+
+	/// Average order value: net_revenue / orders. This divides by the `orders` metric's own definition (has a non-cancelled item), not a raw order count.
+	measure aov = DIVIDE([net_revenue], [orders])
+		formatString: #,0.00
+		lineageTag: 80923ede-eed0-5dbd-8df5-f218f5755abe
+
+	/// Count of order items that are not cancelled (includes returned items).
+	measure items_sold = [_items_sold]
+		formatString: #,0
+		lineageTag: b5d73dec-72b7-5bf0-91b9-65df3cc937b3
+
+	/// Returned items divided by items_sold -- item-based, not revenue-based. A return rate computed on dollars instead of item counts will differ, since returned items aren't a uniform price; say which one you mean if it matters.
+	measure return_rate = DIVIDE(COALESCE([_returned_items], 0), [items_sold])
+		formatString: 0.0000
+		lineageTag: 4d57a692-c20e-54ca-8faa-a749b54d1860
+
+	/// Cancelled items divided by ALL items (cancelled + non-cancelled). Unlike most other metrics here, the denominator is not restricted to non-cancelled items.
+	measure cancellation_rate = DIVIDE(COALESCE([_cancelled_items], 0), [_all_items])
+		formatString: 0.0000
+		lineageTag: 05abc4d3-5ef7-53ca-8b76-095ae320b0c3
+
+	/// Count of distinct users with at least one order (see `orders`) in the period.
+	measure purchasing_customers = [_purchasing_customers]
+		formatString: #,0
+		lineageTag: 78e2e07b-56ea-55e1-b750-9ae7a861f45d
+
+	/// Count of users whose first-ever order (by the `orders` definition, using each customer's full order history, not just the queried period) falls in the period. A returning customer's order in the period does not make them "new" even if it's their first order in this particular date range.
+	measure new_customers = [_new_customers]
+		formatString: #,0
+		lineageTag: fd5cd52e-b5fd-5bc0-9b79-b5e612e98397
+
+	/// Share of a first-order cohort (grouped by the month of each customer's first order) that placed a second order within 90 days of the first. Cohorts near the end of the available data are "immature" -- they haven't had 90 days yet to repeat -- and should be flagged or excluded, not reported as a low rate.
+	measure repeat_purchase_rate_90d = DIVIDE(COALESCE([_repeat_customers], 0), [_cohort_customers])
+		formatString: 0.0000
+		lineageTag: 8bdeb60b-5045-5b5e-9a1e-d7dba63b73b7
+
+	/// Count of users created (account creation, not first purchase) in the period.
+	measure signups = [_signups]
+		formatString: #,0
+		lineageTag: 5f1d5d06-7057-5d8f-ac0b-adf1000abb51
+
+	/// Count of distinct session_id values in the events log, in the period.
+	measure sessions = [_sessions]
+		formatString: #,0
+		lineageTag: 1a81e85f-89bc-5869-98e9-3e6c19464610
+
+	/// Sessions containing a purchase event, divided by all sessions, in the period.
+	measure session_conversion_rate = DIVIDE(COALESCE([_converted_sessions], 0), [sessions])
+		formatString: 0.0000
+		lineageTag: 95f2c2fa-f51e-57ae-9864-fab3b85c5adc
+
+	/// Share of users (or sessions, via session_traffic_source) with a known, non-null traffic_source. Governed-stack only -- it exists to expose where acquisition-channel data is missing, not to explain the missing values away. A drop in this metric means "we stopped knowing," not "the channel declined."
+	measure attribution_coverage_rate = DIVIDE(COALESCE([_known_channel_signups], 0), [signups])
+		formatString: 0.0000
+		lineageTag: 6e51a139-9df4-5d6a-9b3d-960d226a4f75
+
+	/// Internal base measure. Sum of sale_price over items that were not cancelled.
+	measure _gross_revenue =
+			CALCULATE(
+			    SUM(fct_order_items[sale_price]),
+			    fct_order_items[is_cancelled] = FALSE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0.00
+		isHidden
+		displayFolder: _base
+		lineageTag: 077dab59-3e44-5ba1-8e86-6a4f63ae557c
+
+	/// Internal base measure. Sum of sale_price over returned items.
+	measure _returned_revenue =
+			CALCULATE(
+			    SUM(fct_order_items[sale_price]),
+			    fct_order_items[is_returned] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0.00
+		isHidden
+		displayFolder: _base
+		lineageTag: 5e97b5e2-c546-570d-9245-a00b6dfb8247
+
+	/// Internal base measure. Sum of cost over items that are neither cancelled nor returned.
+	measure _cogs =
+			CALCULATE(
+			    SUM(fct_order_items[cost]),
+			    fct_order_items[is_cancelled] = FALSE(),
+			    fct_order_items[is_returned] = FALSE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0.00
+		isHidden
+		displayFolder: _base
+		lineageTag: d7f11ffe-961e-571f-9c7f-e2fd77707df8
+
+	/// Internal base measure. Distinct orders with at least one non-cancelled item.
+	measure _orders =
+			CALCULATE(
+			    DISTINCTCOUNT(fct_order_items[order_id]),
+			    fct_order_items[is_cancelled] = FALSE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 3b5e892b-13c9-5675-802b-3ec38c33c7d3
+
+	/// Internal base measure. Count of non-cancelled items.
+	measure _items_sold =
+			CALCULATE(
+			    COUNTROWS(fct_order_items),
+			    fct_order_items[is_cancelled] = FALSE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 47aff15b-2d66-5434-9a60-7bee828e67bb
+
+	/// Internal base measure. Count of returned items.
+	measure _returned_items =
+			CALCULATE(
+			    COUNTROWS(fct_order_items),
+			    fct_order_items[is_returned] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 4adef5d2-df4b-5d70-99a0-2dbaad8fef4e
+
+	/// Internal base measure. Count of cancelled items.
+	measure _cancelled_items =
+			CALCULATE(
+			    COUNTROWS(fct_order_items),
+			    fct_order_items[is_cancelled] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: ed041193-732b-5f96-b79f-178046fc9a0f
+
+	/// Internal base measure. Count of all items, cancelled or not.
+	measure _all_items =
+			CALCULATE(
+			    COUNTROWS(fct_order_items),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 02ba7aca-363e-5f24-93a2-af72c9338f28
+
+	/// Internal base measure. Distinct customers with a non-cancelled item.
+	measure _purchasing_customers =
+			CALCULATE(
+			    DISTINCTCOUNT(fct_order_items[customer_key]),
+			    fct_order_items[is_cancelled] = FALSE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 2663c9f1-c0a0-5c10-9bc9-87a7b44d0217
+
+	/// Internal base measure. Count of first orders.
+	measure _new_customers =
+			CALCULATE(
+			    COUNTROWS(fct_orders),
+			    fct_orders[is_first_order] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 9c750906-995e-5b51-aad6-304aaa8e0a40
+
+	/// Internal base measure. Customers who ordered again within 90 days of their first order.
+	measure _repeat_customers =
+			CALCULATE(
+			    COUNTROWS(mart_customer_cohorts),
+			    mart_customer_cohorts[repeat_within_90d] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 77fe7361-697c-556b-b00f-69713637068c
+
+	/// Internal base measure. All customers in the cohort mart (never-buyers included).
+	measure _cohort_customers =
+			CALCULATE(
+			    COUNTROWS(mart_customer_cohorts),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: e24accf5-1a79-553d-8b62-01e8f75f8f3a
+
+	/// Internal base measure. Customers, excluding the -1 unknown member.
+	measure _signups =
+			CALCULATE(
+			    COUNTROWS(dim_customer),
+			    dim_customer[customer_key] <> -1,
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: 96ec38a0-cc0f-5d88-9e9c-f740bfc53401
+
+	/// Internal base measure. Signups whose acquisition channel is known. The channel test is wrapped in KEEPFILTERS: a bare CALCULATE filter would replace a group-by or filter on acquisition_channel instead of intersecting with it.
+	measure _known_channel_signups =
+			CALCULATE(
+			    COUNTROWS(dim_customer),
+			    dim_customer[customer_key] <> -1,
+			    KEEPFILTERS(dim_customer[acquisition_channel] <> "Unattributed"),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: e616a0ca-28f4-5d13-b78b-4ab1897b788e
+
+	/// Internal base measure. Count of sessions.
+	measure _sessions =
+			CALCULATE(
+			    COUNTROWS(fct_sessions),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: fea22aeb-3563-5092-803e-1bb27614b705
+
+	/// Internal base measure. Sessions containing a purchase event.
+	measure _converted_sessions =
+			CALCULATE(
+			    COUNTROWS(fct_sessions),
+			    fct_sessions[has_purchase] = TRUE(),
+			    KEEPFILTERS(dim_customer[is_internal] = FALSE())
+			)
+		formatString: #,0
+		isHidden
+		displayFolder: _base
+		lineageTag: e6f8d1d6-3871-51f8-88c1-55bde61f289f
+
+	partition Metrics = m
+		mode: import
+		source =
+				let
+				    Source = #table({}, {})
+				in
+				    Source
+

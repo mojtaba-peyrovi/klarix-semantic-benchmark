@@ -502,3 +502,249 @@ Project 3 (Power BI / TMDL) has not started.
   user's explicit go-ahead, run the four commands in the README's "Reproduce it", set the pins in
   `config/runs.yaml`, run `make compare PROJECT=2 && make compare-cross`, review each `failures.md`,
   and only then add results to the README.
+
+## Project 3 decisions
+
+Spec: [project3-powerbi-tmdl/DEV_PLAN_PROJECT3.md](project3-powerbi-tmdl/DEV_PLAN_PROJECT3.md). Git tag
+`project2-final` already existed before P3-1 (frozen-path diff baseline).
+
+**Install facts:** Desktop is the Store build at
+`C:\Program Files\WindowsApps\Microsoft.MicrosoftPowerBIDesktop_2.158.1304.0_x64__8wekyb3d8bbwe\bin\PBIDesktop.exe`;
+the engine is the sibling `bin\msmdsrv.exe` (confirmed from the running process). Dependency:
+`project3 = ["pythonnet==3.2.1"]` in `pyproject.toml`, included in `default-groups` (user approved
+pythonnet 2026-10-08). ADOMD.NET is **not** a Python dependency: `setup_adomd.py` downloads the NuGet
+package into a gitignored folder (P3-2).
+
+**P3-1 spike (checked 2026-10-08; toy PBIP in a scratch folder outside the repo, `C:\Users\mojta\p3spike`):**
+- **Versions:** Power BI Desktop 2.158.1304.0, **Microsoft Store install** (engine `msmdsrv`
+  server version 17.0.87.18). ADOMD.NET: NuGet `Microsoft.AnalysisServices.AdomdClient` 19.117.0
+  (updated 2026-09-09; targets net472 and net6.0+). The older `...AdomdClient.retail.amd64` package is
+  marked deprecated/legacy on nuget.org -- do not use it. `pythonnet` 3.2.1 on Python 3.12.
+- **No preview feature needed.** PBIP is generally available; TMDL is selected by
+  `definition.pbism` `"version": "4.0"` (or higher) plus a `definition/` folder (instead of `model.bim`).
+  PBIR is the default report format. Required: `.pbip` (must name a report), a report folder with
+  `definition.pbir` (+ `definition/{version,report}.json`, `pages/pages.json`, one `page.json`) and
+  the model folder with `definition.pbism`. A hand-written minimal report of that shape opened with no
+  error dialog.
+- **Docs say Desktop can reload external TMDL edits** ("Apply external changes" banner) while the
+  project is open; the plan assumed a reopen is needed. Still tell the user when a change needs
+  either. Files must be UTF-8 without BOM; Desktop writes CRLF (set `autocrlf`/`.gitattributes`).
+  260-char path limit applies to PBIP saves: keep the project path short.
+- **A hand-written TMDL model (no `lineageTag`s, no cache.abf) opens as-is.** Parameter
+  `expression DataFolder = "..." meta [IsParameterQuery=true, ...]` + `Parquet.Document(File.Contents(
+  DataFolder & "\x.parquet"))` loads; declared column types (`int64`, `string`, `boolean`, `double`)
+  matched what Power Query returned from DuckDB-written Parquet (BIGINT, VARCHAR, BOOLEAN, DOUBLE) with
+  no `TransformColumnTypes`. `fct_order_items` is 175,804 rows (the plan's "650k" is not this table;
+  check the real counts in P3-2). Loaded sum of non-cancelled `sale_price` = 8464742.0991 = DuckDB's.
+- **Finding the engine (Store install):** port file
+  `%USERPROFILE%\Microsoft\Power BI Desktop Store App\AnalysisServicesWorkspaces\<guid>\Data\msmdsrv.port.txt`
+  (note: under the user profile, **not** `%LOCALAPPDATA%`; the non-Store installer uses
+  `...\Power BI Desktop\AnalysisServicesWorkspaces`, untested here). The file is **UTF-16** text
+  holding just the port. It agrees with `Get-NetTCPConnection` on the `msmdsrv` PID (also listens
+  on ::1). The AS database name is a GUID, so identify "our" instance by its **tables/measures**
+  (`$SYSTEM.DBSCHEMA_TABLES` or `INFO.TABLES()`), never by catalog name; refuse to guess if several
+  instances match or none does. Stale port files after Desktop closes: not yet checked.
+- **Running DAX from Python works:** `pythonnet.load("netfx")` (the .NET Framework 4.8 that ships with
+  Windows, no extra runtime), `clr.AddReference(<net472>\Microsoft.AnalysisServices.AdomdClient.dll)`,
+  `AdomdConnection("Data Source=localhost:<port>;Initial Catalog=<guid>")`, `AdomdCommand(...).
+  ExecuteReader()`. `EVALUATE ROW("x",1)` and `SUMMARIZECOLUMNS` both return. Column names come back as
+  `Sales[item_status]` / `[g]`. The net472 folder needs only the one DLL for this (no
+  Microsoft.Identity.Client, no auth for localhost). pythonnet fallback (PowerShell subprocess) was
+  **not needed**.
+- **Self-description:** `EVALUATE INFO.VIEW.MEASURES()` returns Name, Table, Description, Expression,
+  FormatString (as `FormatStringDefinition` when it is a string literal), IsHidden, DisplayFolder;
+  `INFO.MEASURES()`, the DMV `$SYSTEM.TMSCHEMA_MEASURES` and `$SYSTEM.MDSCHEMA_MEASURES` give the
+  same description text. TMDL `///` doc comments become `Description` verbatim. Note
+  `INFO.VIEW.MEASURES()`'s `FormatString` is None for a custom string; read `INFO.MEASURES()` or
+  the TMSCHEMA DMV for the plain format string.
+- **Refresh is scriptable:** `{"refresh": {"type": "full", "objects": [{"database": "<guid>"}]}}` as
+  an `AdomdCommand` text via `ExecuteNonQuery()` refreshed the import model (175,804 rows) in 5.3 s
+  on a freshly opened project with no data. This refreshes the **in-memory** model; it does not
+  write cache.abf (only Desktop's own save does). So `make p3-refresh` is feasible.
+- **What Desktop rewrites on save (checked on a "Save as" copy, `new-toy`):** my hand-written TMDL
+  came back almost unchanged; the diffs to expect are:
+  - **`lineageTag: <guid>` is added** to every table, column, measure and expression (after the
+    other properties, before `summarizeBy`/`sourceColumn` on columns). Commit them; they are stable.
+    Hand-written files can omit them, but then the first Desktop save produces a large diff.
+  - `definition.pbism` version 4.0 -> **4.2**; `database.tmdl` loses the name (`database` alone) and
+    `compatibilityLevel` 1600 -> **1606**; `model.tmdl` gains `annotation PBI_ProTooling = ["DevMode"]`.
+    Blank lines are normalised, with an extra trailing blank line. Property order, measure text,
+    `///` descriptions, the M `source` block and `formatString` are kept verbatim; my
+    `__PBI_TimeIntelligenceEnabled = 0` (auto date/time off) was kept.
+  - Written as UTF-8 **without BOM, CRLF line endings**. Add a `.gitattributes` for the PBIP folder.
+  - Extra files: `.platform` (logicalId guid), `diagramLayout.json`, `.pbi/{editorSettings,
+    localSettings}.json` and `.pbi/cache.abf` (3.7 MB with the data). **Gitignore `cache.abf` and
+    `localSettings.json`** (the report's too); commit the rest.
+  - Report: `report.json` schema 3.0.0 -> 3.3.0 with `resourcePackages`, `definition.pbir` loses
+    `$schema`; the Desktop-made report is what to copy for the minimal PBIR set.
+  - The path in `expressions.tmdl` stays the machine-specific absolute path (as written), so
+    `set_data_path.py` must keep a committed placeholder.
+
+**Review of the pre-existing Project 3 files (2026-10-08, user said keep them):** written by an
+earlier session while P3-1 was running; reviewed and kept, with these changes.
+- `export_star.py` kept as is. It was found half-run (7 of 8 files, no manifest); rerun clean:
+  all 8 tables + `manifest.json`, the `customer_cohort_month` cross-check passes, and **two exports
+  give byte-identical manifests**. Row counts: dim_date 2,829; dim_customer 97,447;
+  dim_product 30,858; dim_distribution_center 11; fct_order_items 175,804; fct_orders 119,574;
+  fct_sessions 663,100 (this is the plan's "650k" table); mart_customer_cohorts 97,446
+  (dim_customer has the extra -1 unknown member).
+- `set_data_path.py` rewritten: it used to overwrite the committed placeholder and never restore it.
+  Now it replaces whatever `DataFolder` holds (CRLF-safe, Windows path) and `--reset` restores
+  `__DATA_FOLDER__`. Run `--reset` before committing.
+- `expressions.tmdl` moved to `pbip/KlarixApparel.SemanticModel/definition/` (plan layout) and made
+  one line, the way Desktop writes it.
+- `powerbi_backend.py` now raises until P3-4: the scaffold answered `list_metrics` from
+  `catalog.yaml`, which would have let the live contract test pass without reading the model.
+- `tests/layer/conftest.py`: the `powerbi` param referenced a fixture that does not exist (it would
+  have errored once Desktop was running); it now skips with a reason until P3-4.
+- `tests/test_agent_text_hygiene.py::powerbi_texts` reads `catalog.yaml`, not the model, so it is a
+  placeholder check; P3-3 replaces it with the model's real descriptions.
+- Kept unchanged: Makefile `p3-*` targets, runner registration, `uv.lock`, project README stub.
+
+**P3-2 (export, model skeleton, static + live row-count tests): done, awaiting review.**
+`project3-powerbi-tmdl/{pbip/,tmdl_check.py,setup_adomd.py,refresh.py,backend/desktop_connection.py}`,
+`tests/test_powerbi_{static,live}.py`, `.gitattributes`, `make p3-{setup,export,set-path,refresh,
+static-test,live-test}`. Full suite 211 passed, 42 skipped, 1 expected xfail; `ruff check` clean.
+- **Model:** 10 tables (7 exported tables + `Order Date`/`Signup Date`/`Session Date`, each loaded from
+  `dim_date.parquet`), 9 relationships (all many-to-one, single direction, active), auto date/time off
+  (`__PBI_TimeIntelligenceEnabled = 0`), `discourageImplicitMeasures`, every column `summarizeBy: none`,
+  27 visible columns = the 12 catalog dimension columns + 5 grain columns x 3 date tables. Keys,
+  `is_internal`, the mart and `dim_distribution_center` are hidden. Catalog dimension descriptions are
+  on the visible columns verbatim (the date tables' `Date` column carries the time dimension's text).
+  `metrics` table: P3-3.
+- **TMDL was generated once by a throwaway script** (not committed; the TMDL files are the source of
+  truth). `lineageTag`s are deterministic (uuid5) so Desktop should not rewrite them. Not yet seen:
+  what Desktop changes on the *first save of this model* (opening it rewrote nothing).
+- **`dim_date` has an unknown member** (`date_key = -1`, NULL date): it blocks "mark as date table", so
+  the three date tables drop it in M (`each [date_key] <> -1`). They hold 2,828 contiguous days
+  (2018-12-04 to 2026-08-31) vs 2,829 in the export. Consequence: the one unknown customer
+  (`created_date_key = -1`) has no `Signup Date` row (1 orphan, harmless: `signups` excludes -1).
+- **For P3-3:** 74.6% of sessions belong to customer -1 (anonymous); that row has `is_internal = false`,
+  so the internal-user base measures keep them (to be checked against truth). 29,267 customers have a
+  NULL `customer_cohort_month` (never bought). `dim_customer.customer_cohort_month` equals the mart's
+  for every customer (static test), so one hidden copy in the mart is safe.
+- **Live (Desktop 2.158.1304.0, two windows open at once):** `find_instance` picked the right engine by
+  its tables (toy model with 1 table ignored); all 10 row counts equal the manifest; the live
+  relationships equal the TMDL (`INFO.VIEW.RELATIONSHIPS()`, direction comes back as the string
+  `OneDirection`). `refresh.py` (TMSL full refresh) takes 4-10 s for ~1.1M rows.
+- **Static tests are meaningful:** 10 deliberately broken copies of the model (bidirectional and
+  one-to-one relationship, auto date/time on, implicit measures allowed, sum-summarized column,
+  visible `is_internal`, extra visible column, wrong relationship, edited description,
+  `LocalDateTable_*`) are each caught by the intended test.
+- **Local data path workflow:** `set_data_path.py` writes this checkout's `data\powerbi` into the
+  `DataFolder` parameter; `--reset` restores `__DATA_FOLDER__`. A static test fails if a machine path
+  is in the committed file, so the full suite is red while the path is set. Run `--reset` first.
+- Package/DLL: `setup_adomd.py` downloads ADOMD.NET 19.117.0 into the gitignored `.adomd/` and checks
+  the nupkg's pinned SHA-256 before extracting only the net472 DLL.
+
+**P3-3 (18 catalog measures, base measures, contract tests): done, awaiting review.**
+`pbip/KlarixApparel.SemanticModel/definition/tables/Metrics.tmdl` (+ `ref table Metrics` in
+`model.tmdl`), new contract tests in `tests/test_powerbi_static.py`, and the hygiene collector
+`powerbi_texts` now reads the model's real descriptions from TMDL (it used `catalog.yaml` before).
+- **Design:** measure-only `Metrics` table (`#table({}, {})` partition; the engine shows only its
+  built-in row-number column). 18 visible catalog measures, named and described exactly as the
+  catalog, formats by unit (usd `#,0.00`, count `#,0`, ratio `0.0000`, never a percentage). 16 hidden
+  base measures in display folder `_base`, each `CALCULATE(<one aggregation>, <item filters>,
+  KEEPFILTERS(dim_customer[is_internal] = FALSE()))`. Catalog measures contain no column reference:
+  they wrap a base measure or combine measures (`DIVIDE` for ratios). `net_revenue =
+  gross_revenue - returned_revenue` etc. mirror Project 2. Engine state after loading: 34 measures,
+  all Valid, 0 errors.
+- **Static contract (22 tests in the file, all pass):** the visible measures equal the catalog both
+  ways; every other measure is hidden, in `_base`, starts with `_`; descriptions verbatim; format by
+  unit; each base measure holds the internal filter exactly once and reads no other measure; a graph
+  walk from each catalog measure fails on a direct column read, an unknown/cyclic reference, or a
+  base measure without the filter. 8 deliberately broken variants (direct column read, missing
+  filter = the T2 trap, filter twice, `%` format, visible base measure, edited description, missing
+  measure, missing column) are each caught by the intended test.
+- **Live vs truth (full benchmark window, DAX `CALCULATE([m], 'Date table'[Date] between ...)`):** all 16
+  window metrics equal truth, max relative deviation **3.7e-15** (float rounding; MetricFlow was
+  also ~1e-15). `repeat_purchase_rate_90d` (0.051448, ungrouped, all customers incl. never-buyers) and
+  `attribution_coverage_rate` (0.980704) equal MetricFlow's ungrouped values to every digit.
+  Not yet run through the shared layer suite (P3-4).
+- **Check 1, unknown member / anonymous sessions:** customer -1 has `is_internal = false`, so the
+  internal filter keeps its sessions (74.6% of all sessions); `sessions` and
+  `session_conversion_rate` match truth exactly, so truth also counts anonymous sessions.
+- **Check 2, blank vs zero:** DAX returns BLANK (None) for **every** measure on an empty context,
+  counts included. MetricFlow is irregular: 0 for the four distinct-count metrics (`orders`,
+  `purchasing_customers`, `signups`, `sessions`), null for all the rest (`items_sold` and
+  `new_customers` too). Cube was not run (needs Docker + BigQuery), so its behaviour is unchecked.
+  **Proposed backend rule (P3-4, needs the user's OK): BLANK -> None for every metric**, and the
+  README states MetricFlow's four zeros. Empty *groups* never appear: `SUMMARIZECOLUMNS` drops
+  groups where all measures are blank (a future month is simply absent), the same as a SQL GROUP BY.
+- **Finding for P3-4/P3-5 (real, live-confirmed):** `fct_orders` has no relationship to `dim_product`,
+  so `new_customers` filtered by `category = Jeans` returns 67,180, the same as unfiltered -- DAX
+  silently ignores a filter on a table that cannot reach the measure's table. MetricFlow refuses
+  the same query with an error. The backend's reachability check must refuse or warn (trap T4).
+- **Process notes:** the engine only sees TMDL changes after the project is reopened; I ended the
+  stale Desktop instance (it would not close on its own) and reopened. A `find_instance` miss after a
+  model change can simply mean the open window predates the change. Regex escapes in patch scripts
+  were mangled twice (`\b` became a backspace character); edit such lines directly.
+
+**P3-4 (DAX compiler, backend, live contract, layer tests, three-engine parity): done, awaiting review.**
+`project3-powerbi-tmdl/backend/{dax_compiler,powerbi_backend}.py`, `parity.py`,
+`tests/{test_dax_compiler,test_powerbi_contract}.py`, `tests/conftest.py` (`powerbi_backend` fixture),
+`make p3-{compiler-test,layer-test,parity}` (`p3-live-test` now includes the contract test).
+Full suite 327 passed, 22 skipped (Cube down), 1 expected xfail; `ruff check` clean; no frozen path
+differs from `project2-final`.
+- **Layer suite, `powerbi`:** all 41 checks pass; max deviation from truth 3.7e-15 except
+  `repeat_purchase_rate_90d` 2.2e-3 (the same shared-mart-rule gap as the other two stacks).
+- **Parity (`make p3-parity`, 309 queries: every metric x window total, five time grains, and each of
+  11 categorical dimensions, plus the layer-test extras):** 185 compared on both backends, 52 refused
+  by both, **0 differences, max relative difference 1.1e-14**. Report: `runs/powerbi_parity.md`.
+  The three documented engine differences it surfaced:
+  1. **DAX text comparison is case-insensitive.** 2,757 distinct brand strings are 2,718 once case is
+     ignored, so Power BI merges `BluePrint`/`Blueprint` into one group (and a `brand eq` filter
+     matches both) where SQL keeps two. Parity sums MetricFlow's variants for additive metrics.
+  2. **Empty groups:** `SUMMARIZECOLUMNS` drops a group whose requested measures are all blank;
+     MetricFlow's GROUP BY lists it with null/0 (e.g. `gross_revenue` by `item_status` has no
+     `Cancelled` row in Power BI). Ungrouped queries over an empty slice still return one row of
+     `None` (the backend adds it).
+  3. **BLANK -> `None` for every metric** (the P3-3 proposal, taken as approved by "go").
+- **Two real model bugs found by the parity sweep, fixed in `Metrics.tmdl` (hidden-measure and
+  ratio-numerator changes only; descriptions, names, formats untouched):**
+  - `_known_channel_signups` filtered `acquisition_channel <> "Unattributed"` inside `CALCULATE`,
+    which REPLACES a group-by/filter on that column: `attribution_coverage_rate` by channel gave
+    24.5 for "Display". Now `KEEPFILTERS(...)`. Static test: a bare `CALCULATE` filter may only
+    target a hidden column.
+  - `DIVIDE(BLANK, n)` is BLANK, so a group with sessions but no conversions (or a cohort with no
+    repeat buyers) vanished instead of showing 0. The five ratios with a base-measure numerator
+    (`return_rate`, `cancellation_rate`, `repeat_purchase_rate_90d`, `session_conversion_rate`,
+    `attribution_coverage_rate`) now use `DIVIDE(COALESCE([_x], 0), den)`; the denominator stays blank
+    when there is no data. Both are good P3-5 trap material (T5 candidates); both tests were checked
+    against the original expressions and fail on them.
+  - **The open Desktop window still holds the OLD measures** (it only reloads TMDL on reopen; TMSL can't
+    replace a single measure). Verified the fix with `DEFINE MEASURE` overrides of the on-disk TMDL on
+    every query (parity, layer suite and contract test all pass that way). **Reopen the project and
+    run `make p3-refresh`, then `make p3-parity`, before trusting the committed `runs/` numbers.**
+- **Compiler design:** pure functions, unit-tested offline against the TMDL files (59 tests; a
+  reversed-reachability and a missing-quote-doubling mutation each fail the intended tests). A
+  `ModelInfo` holds (a) which tables each table can filter, from the relationships (transitive,
+  single-direction), and (b) which tables each measure reads, found by following measure references
+  and ignoring the `dim_customer[is_internal]` exclusion filter (and bare `COUNTROWS(table)` reads).
+  A requested dimension, filter or time axis that cannot reach a metric's base tables makes the whole
+  query **refuse with a warning naming the metric and dimension** (and the dimensions that do work),
+  never a wrong number: confirmed live, `sessions` by `category` would otherwise repeat 663,100 on
+  every row and `new_customers` filtered by `category` would ignore the filter (T4).
+- **Time routing** mirrors MetricFlow: own axis (a metric's own time dimension is derived from its
+  base table) -> no warning; another reachable date table (`gross_revenue` by `user_created`,
+  `repeat_purchase_rate_90d` by `user_created`) -> warning saying what the range filtered on;
+  unreachable (`orders` + `sessions` by `order_created`) -> empty result with a warning naming each
+  metric's own dimension. Year grain is the model's integer year, returned as `YYYY-01-01`.
+- **Output rules:** columns by position (ADOMD names are ignored); dates as ISO strings; `limit` is
+  `TOPN` then trimmed in Python (`TOPN` keeps ties); no `order_by` sorts by the group-by columns so
+  results and limits are deterministic. `neq`/`not_in` follow the plan (`NOT col IN {...}`), so
+  blank values stay in (SQL's `<>` would drop NULLs; no filterable dimension has blanks today).
+- **Backend plumbing:** `powerbi_backend.py` adds its own and its parent folder to `sys.path` and
+  imports `desktop_connection`/`dax_compiler`/`tmdl_check` as siblings (the folder name has a hyphen);
+  it finds the instance at construction (fail fast, readable), then opens/closes a connection per
+  query, re-finding the instance once if the port went stale. `list_metrics`/`list_dimensions` read
+  the live model (`INFO.MEASURES()`, `INFO.VIEW.COLUMNS()`); the unit is read back from the live format
+  string. Engine errors come back as a `query failed:` warning with the DAX in `compiled_query`.
+- **Windows scripting gotcha, again:** a backslash-b typed into a heredoc-fed patch script became
+  a literal backspace character inside a regex (ruff did not flag it; the regex silently matched
+  nothing). Check a file with `python -c "print(open(f).read().count(chr(8)))"` or edit such lines
+  with the Edit tool.
+- **Not done / for later milestones:** the committed `runs/powerbi_parity.md` was produced with the
+  DEFINE override, not a reopened model. Parity now sweeps day/week/month/quarter/year
+  grains too (309 queries, 0 differences, max 1.09e-14). P3-5 traps, P3-6 wiring/report/case study are untouched.
+

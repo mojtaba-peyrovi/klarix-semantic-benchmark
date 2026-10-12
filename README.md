@@ -6,7 +6,7 @@ Three semantic-layer stacks answer the same business questions through an LLM ag
 |---|---|---|---|
 | [1](project1-gcp-cube/) | BigQuery + Cube Core | Gemini on Vertex AI | done |
 | [2](project2-dbt-metricflow/) | dbt Core + MetricFlow on DuckDB | Claude | stack built and tested; agent evaluation not run (cost) |
-| [3](project3-powerbi-tmdl/) | Power BI Desktop, PBIP/TMDL | Claude | planned |
+| [3](project3-powerbi-tmdl/) | Power BI Desktop, PBIP/TMDL | Claude | scaffolding started |
 
 **Thesis:** a semantic layer makes metric answers *consistent*, but not necessarily *correct*. The
 layer is only as correct as the judgment encoded into it. The benchmark measures where stack +

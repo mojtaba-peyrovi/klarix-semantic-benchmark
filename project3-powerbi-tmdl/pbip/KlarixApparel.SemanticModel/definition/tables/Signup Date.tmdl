@@ -1,0 +1,71 @@
+/// Role-playing copy of dim_date for the catalog time dimension user_created.
+table 'Signup Date'
+	lineageTag: 32ce6dc7-7eb6-5651-9d42-2db94642a7c1
+	dataCategory: Time
+
+	column date_key
+		dataType: int64
+		isHidden
+		lineageTag: ed81a4b2-efde-57ed-aebd-12e70bceff4c
+		summarizeBy: none
+		sourceColumn: date_key
+
+	/// The user's signup date (users.created_at), truncated to the requested grain.
+	column Date
+		dataType: dateTime
+		isKey
+		formatString: yyyy-MM-dd
+		lineageTag: bd66fb81-6a8b-5b3e-8f97-613bba41dcdd
+		summarizeBy: none
+		sourceColumn: date
+
+	column week_start
+		dataType: dateTime
+		formatString: yyyy-MM-dd
+		lineageTag: 00865f17-b77b-5d2b-b013-85573bc1b5f2
+		summarizeBy: none
+		sourceColumn: week_start
+
+	column month
+		dataType: dateTime
+		formatString: yyyy-MM
+		lineageTag: 8a148f8f-16c4-5923-9ace-0fa4730591c1
+		summarizeBy: none
+		sourceColumn: month
+
+	column quarter
+		dataType: dateTime
+		formatString: yyyy-MM-dd
+		lineageTag: 5e4085ea-b2b6-5cb4-9477-38e8aef22854
+		summarizeBy: none
+		sourceColumn: quarter
+
+	column year
+		dataType: int64
+		lineageTag: e34ad085-d71c-5716-8f5c-28c4219ca56f
+		summarizeBy: none
+		sourceColumn: year
+
+	column day_of_week
+		dataType: int64
+		isHidden
+		lineageTag: d9683e4d-0bb3-51a6-9f90-c38f18ef1a7d
+		summarizeBy: none
+		sourceColumn: day_of_week
+
+	column is_weekend
+		dataType: boolean
+		isHidden
+		lineageTag: 5379947a-94c0-5a41-bf43-0cadf1b9ff4c
+		summarizeBy: none
+		sourceColumn: is_weekend
+
+	partition 'Signup Date' = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\dim_date.parquet")),
+				    KnownDates = Table.SelectRows(Source, each [date_key] <> -1)
+				in
+				    KnownDates
+

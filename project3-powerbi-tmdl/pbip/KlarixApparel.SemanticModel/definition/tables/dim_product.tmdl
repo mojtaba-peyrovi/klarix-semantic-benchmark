@@ -1,0 +1,82 @@
+/// One row per product, plus the -1 unknown member.
+table dim_product
+	lineageTag: 8e68d744-4ac5-515e-b5db-751d6e32dd4f
+
+	column product_key
+		dataType: int64
+		isHidden
+		lineageTag: 3fe0dee8-a9aa-516f-a6e1-1bff33e14c78
+		summarizeBy: none
+		sourceColumn: product_key
+
+	column product_id
+		dataType: int64
+		isHidden
+		lineageTag: 4265372b-f801-57f7-877c-d2eaba38f6ef
+		summarizeBy: none
+		sourceColumn: product_id
+
+	column name
+		dataType: string
+		isHidden
+		lineageTag: a43dee2d-d956-5055-bdab-2b82d3b5a520
+		summarizeBy: none
+		sourceColumn: name
+
+	/// products.brand.
+	column brand
+		dataType: string
+		lineageTag: 9bcd513b-be46-5b2b-ac38-81bd29ba47b4
+		summarizeBy: none
+		sourceColumn: brand
+
+	/// products.category, as entered in the source system. Not stable over time -- see category_family for a definition that survives a rename.
+	column category
+		dataType: string
+		lineageTag: 5a4ded7c-43d0-576e-8f97-13301e553417
+		summarizeBy: none
+		sourceColumn: category
+
+	/// A stable grouping that maps a renamed category's old and new names to one lineage. Prefer this over `category` for any trend that spans a rename.
+	column category_family
+		dataType: string
+		lineageTag: 9a58ef8c-5c57-5ecf-9220-9dfad428a455
+		summarizeBy: none
+		sourceColumn: category_family
+
+	/// products.department (Men or Women).
+	column department
+		dataType: string
+		lineageTag: 705db152-2685-5d57-adb1-002c78c6fd27
+		summarizeBy: none
+		sourceColumn: department
+
+	column retail_price
+		dataType: double
+		isHidden
+		lineageTag: 8f1aef6b-1bd8-59c1-8c96-9569e9cc3037
+		summarizeBy: none
+		sourceColumn: retail_price
+
+	column cost
+		dataType: double
+		isHidden
+		lineageTag: a2f66449-61a3-5710-8392-4c2d54add0e5
+		summarizeBy: none
+		sourceColumn: cost
+
+	/// The fulfilling distribution_centers.name for an order item.
+	column distribution_center_name
+		dataType: string
+		lineageTag: ab2743fe-e53f-5e8b-9066-69aa28754c1e
+		summarizeBy: none
+		sourceColumn: distribution_center_name
+
+	partition dim_product = m
+		mode: import
+		source =
+				let
+				    Source = Parquet.Document(File.Contents(DataFolder & "\dim_product.parquet"))
+				in
+				    Source
+

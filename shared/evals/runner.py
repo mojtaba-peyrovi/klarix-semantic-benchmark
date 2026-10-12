@@ -70,6 +70,15 @@ def _load_metricflow_backend(settings: Settings) -> Backend:
     return module.MetricFlowBackend(settings)
 
 
+def _load_powerbi_backend(settings: Settings) -> Backend:
+    path = REPO_ROOT / "project3-powerbi-tmdl" / "backend" / "powerbi_backend.py"
+    spec = importlib.util.spec_from_file_location("powerbi_backend", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["powerbi_backend"] = module
+    spec.loader.exec_module(module)
+    return module.PowerBiBackend(settings)
+
+
 def build_backend(name: str, settings: Settings) -> Backend:
     if name == "naive_bigquery":
         return NaiveBigQueryBackend(settings)
@@ -79,6 +88,8 @@ def build_backend(name: str, settings: Settings) -> Backend:
         return _load_cube_backend(settings)
     if name == "metricflow":
         return _load_metricflow_backend(settings)
+    if name == "powerbi":
+        return _load_powerbi_backend(settings)
     raise ValueError(f"unknown backend {name!r}")
 
 
@@ -170,7 +181,9 @@ def run_question(
 
 
 def main(
-    backend: str = typer.Option(..., help="naive_bigquery | cube | naive_duckdb | metricflow"),
+    backend: str = typer.Option(
+        ..., help="naive_bigquery | cube | naive_duckdb | metricflow | powerbi"
+    ),
     provider: str = typer.Option(..., help="gemini | anthropic"),
     questions: str = typer.Option("all", help="'all' or a comma-separated list of ids (Q01,Q02)"),
     repeats: int = typer.Option(1, help="Times to repeat each paraphrase."),

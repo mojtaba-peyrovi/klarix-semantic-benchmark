@@ -125,10 +125,40 @@ def metricflow_texts() -> Texts:
     return out
 
 
+def powerbi_texts() -> Texts:
+    """Descriptions the agent can see in the Power BI model: visible measures and columns.
+
+    Read from the TMDL files (the static fallback; the live model is checked from P3-6).
+    """
+    import importlib.util
+    import sys
+
+    path = REPO_ROOT / "project3-powerbi-tmdl" / "tmdl_check.py"
+    spec = importlib.util.spec_from_file_location("tmdl_check", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["tmdl_check"] = module
+    spec.loader.exec_module(module)
+    model = module.load_model()
+    out: Texts = []
+    for table in model.tables.values():
+        out += [
+            (f"measure {m.name}", m.description or "")
+            for m in table.measures.values()
+            if not m.hidden
+        ]
+        out += [
+            (f"column {table.name}[{c.name}]", c.description or "")
+            for c in table.columns.values()
+            if not c.hidden
+        ]
+    return out
+
+
 COLLECTORS: dict[str, Callable[[], Texts]] = {
     "naive_bigquery": naive_bigquery_texts,
     "naive_duckdb": naive_duckdb_texts,
     "metricflow": metricflow_texts,
+    "powerbi": powerbi_texts,
     "cube": pytest.param(  # type: ignore[dict-item]
         cube_texts,
         marks=pytest.mark.xfail(

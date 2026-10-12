@@ -1,0 +1,36 @@
+relationship 634671ea-9f64-5d0c-bed2-bf85e4a47b62
+	fromColumn: fct_order_items.customer_key
+	toColumn: dim_customer.customer_key
+
+relationship 5f8d3f67-21d7-58cb-a7c1-e8abfc4e9024
+	fromColumn: fct_order_items.product_key
+	toColumn: dim_product.product_key
+
+relationship fa8e0673-9590-52c8-8063-37752a20f9a5
+	fromColumn: fct_order_items.created_date_key
+	toColumn: 'Order Date'.date_key
+
+relationship fd359ad8-92ac-53c7-b641-e8e004c164bd
+	fromColumn: fct_orders.customer_key
+	toColumn: dim_customer.customer_key
+
+relationship 799a119f-8320-5a5d-9975-928c2c25a9af
+	fromColumn: fct_orders.order_date_key
+	toColumn: 'Order Date'.date_key
+
+relationship e007f3a1-7d6a-50ee-a5a8-e1ca1bfa2837
+	fromColumn: fct_sessions.customer_key
+	toColumn: dim_customer.customer_key
+
+relationship db942808-5d78-5782-bace-3072a7b65bda
+	fromColumn: fct_sessions.session_date_key
+	toColumn: 'Session Date'.date_key
+
+relationship 983463e2-0345-5059-91c1-4a5d2dc9cf05
+	fromColumn: dim_customer.created_date_key
+	toColumn: 'Signup Date'.date_key
+
+relationship 002973a9-e7f5-5e92-bea6-14aff1c9ed95
+	fromColumn: mart_customer_cohorts.customer_key
+	toColumn: dim_customer.customer_key
+
